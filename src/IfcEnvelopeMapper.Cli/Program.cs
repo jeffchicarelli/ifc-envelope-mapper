@@ -9,6 +9,11 @@ Console.WriteLine($"Opening: {ifcPath}");
 IModelLoader loader = new XbimModelLoader();
 var elements = loader.Load(ifcPath);
 
+var first = elements.First(e => e.Mesh.TriangleCount > 0);
+Console.WriteLine($"First with geometry: {first.IfcType} {first.GlobalId} " +
+                  $"tris={first.Mesh.TriangleCount} " +
+                  $"bbox=({first.BoundingBox.Min}) → ({first.BoundingBox.Max})");
+
 Console.WriteLine($"Loaded {elements.Count} elements");
 foreach (var element in elements)
 {
