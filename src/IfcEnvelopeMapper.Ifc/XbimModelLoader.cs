@@ -1,3 +1,4 @@
+using g4;
 using IfcEnvelopeMapper.Core.Building;
 using IfcEnvelopeMapper.Core.Pipeline;
 using Xbim.Ifc;
@@ -14,9 +15,12 @@ public sealed class XbimModelLoader : IModelLoader
 
         var buildingElements = new List<BuildingElement>();
 
-        foreach (var ifcBuildingElement in elements)
+        foreach (var element in elements)
         {
-            buildingElements.Add(new BuildingElement(ifcBuildingElement.GlobalId, ifcBuildingElement.GetType().Name));
+            buildingElements.Add(new BuildingElement(
+                element.GlobalId,
+                element.GetType().Name,
+                new DMesh3()));
         }
 
         return buildingElements;

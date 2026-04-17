@@ -1,7 +1,7 @@
 # Plano de Implementação — IfcEnvelopeMapper
 
 > Documento vivo. Atualizar a cada sessão de desenvolvimento.
-> Última atualização: 2026-04-10
+> Última atualização: 2026-04-17
 
 ---
 
@@ -49,7 +49,7 @@ O trabalho propõe **um método computacional**, avaliado rigorosamente em model
 |---|---|---|---|
 | **xBIM Essentials** | `Xbim.Essentials` | Leitura de modelos IFC, schema IFC4 | Ifc |
 | **xBIM Geometry** | `Xbim.Geometry` | Triangulação de geometria IFC via `Xbim3DModelContext` | Ifc |
-| **geometry3Sharp** | `geometry3Sharp` | Mesh 3D (`DMesh3`), ray casting, BVH, normais de face | Core + Geometry |
+| **geometry4Sharp** | `geometry4Sharp` | Mesh 3D (`DMesh3`), ray casting, BVH, normais de face — namespace `g4`; fork ativo de `geometry3Sharp` (sucessor de fato no NuGet) | Core + Geometry |
 | **NetTopologySuite** | `NetTopologySuite` | Geometria 2D, operações de containment e projeção em plano | Geometry |
 | **DBSCAN** | `DBSCAN` (NuGet) | Clustering de normais sobre a esfera de Gauss | Algorithms |
 | **QuikGraph** | `QuikGraph` | Grafo de adjacência espacial, componentes conectados | Algorithms |
