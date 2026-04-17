@@ -1,0 +1,63 @@
+# CLI debug output
+output.txt
+run.out
+run.err
+
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+.vs/
+.idea/
+*.DotSettings.user
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+bld/
+
+## NuGet
+*.nupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+
+## IDE
+.idea/
+*.swp
+*~
+.vscode/
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Test results
+TestResults/
+*.trx
+
+# Test data — large binaries, download per data/README.md
+data/models/*.ifc
+data/results/
+data/ground-truth/*.csv
+
+# Vendor assets (managed by libman/npm — not committed)
+**/wwwroot/lib/
+
+# Generated outputs
+**/*.json
+**/*.bcf
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
