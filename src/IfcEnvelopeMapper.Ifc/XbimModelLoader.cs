@@ -11,29 +11,121 @@ namespace IfcEnvelopeMapper.Ifc;
 
 public sealed class XbimModelLoader : IModelLoader
 {
+    private readonly IElementFilter _filter;
+
+    public XbimModelLoader(IElementFilter? filter = null)
+    {
+        _filter = filter ?? new DefaultElementFilter();
+    }
+
     public ModelLoadResult Load(string path)
     {
         using var model = IfcStore.Open(path);
         var context = new Xbim3DModelContext(model);
-        // OCCT has a thread-unsafe handle teardown path that races under the
-        // default parallel geometry worker, producing AccessViolationException
-        // in WriteShapeGeometries. Force single-threaded processing.
         context.MaxThreads = 1;
         context.CreateContext();
 
-        var result = new List<BuildingElement>();
-        foreach (var element in model.Instances.OfType<IIfcBuildingElement>())
+        var elements = new List<BuildingElement>();
+        var groups = new List<BuildingElementGroup>();
+
+        foreach (var ifcElem in model.Instances.OfType<IIfcBuildingElement>())
         {
-            var mesh = ExtractMesh(element, context);
-            result.Add(new BuildingElement
+            if (!_filter.Include(ifcElem.GetType().Name)) continue;
+
+            // Skip if this element is an included child — its parent will pick it up.
+            // (Not in the plan's pseudocode yet; avoids duplicating aggregated children.)
+            var isChildOfIncluded = ifcElem.Decomposes
+                                           .Any(r => r.RelatingObject is IIfcBuildingElement parent
+                                                     && _filter.Include(parent.GetType().Name));
+            if (isChildOfIncluded) continue;
+
+            var ctx = ExtractContext(ifcElem);
+
+            var children = ifcElem.IsDecomposedBy
+                                  .SelectMany(r => r.RelatedObjects.OfType<IIfcBuildingElement>())
+                                  .Where(c => _filter.Include(c.GetType().Name))
+                                  .ToList();
+
+            if (children.Count == 0)
             {
-                GlobalId = element.GlobalId,
-                IfcType = element.GetType().Name,
-                Mesh = mesh
-            });
+                var mesh = ExtractMesh(ifcElem, context);
+                if (mesh.TriangleCount > 0)
+                {
+                    elements.Add(new BuildingElement
+                    {
+                        GlobalId = ifcElem.GlobalId,
+                        IfcType = ifcElem.GetType().Name,
+                        Mesh = mesh,
+                        Context = ctx,
+                    });
+                }
+            }
+            else
+            {
+                var groupId = ifcElem.GlobalId;
+                var groupElements = new List<BuildingElement>();
+
+                foreach (var child in children)
+                {
+                    var childMesh = ExtractMesh(child, context);
+                    if (childMesh.TriangleCount == 0)
+                    {
+                        // TODO P3: logger.Warning — element discarded (empty mesh).
+                        continue;
+                    }
+
+                    var elem = new BuildingElement
+                    {
+                        GlobalId = child.GlobalId,
+                        IfcType = child.GetType().Name,
+                        Mesh = childMesh,
+                        Context = ExtractContext(child),
+                        GroupGlobalId = groupId,
+                    };
+                    elements.Add(elem);
+                    groupElements.Add(elem);
+                }
+
+                var ownMesh = ExtractMesh(ifcElem, context);
+                groups.Add(new BuildingElementGroup
+                {
+                    GlobalId = groupId,
+                    IfcType = ifcElem.GetType().Name,
+                    Context = ctx,
+                    OwnMesh = ownMesh.TriangleCount > 0 ? ownMesh : null,
+                    Elements = groupElements,
+                });
+            }
         }
 
-        return new ModelLoadResult(result, []);
+        return new ModelLoadResult(elements, groups);
+    }
+
+    private static BuildingElementContext ExtractContext(IIfcElement elem)
+    {
+        string? siteId = null;
+        string? buildingId = null;
+        string? storeyId = null;
+
+        var current = elem.ContainedInStructure
+                          .FirstOrDefault()
+                         ?.RelatingStructure;
+
+        while (current is not null)
+        {
+            switch (current)
+            {
+                case IIfcBuildingStorey s: storeyId ??= s.GlobalId; break;
+                case IIfcBuilding b:       buildingId ??= b.GlobalId; break;
+                case IIfcSite s:           siteId ??= s.GlobalId; break;
+            }
+
+            current = current.Decomposes
+                             .FirstOrDefault()
+                            ?.RelatingObject as IIfcSpatialElement;
+        }
+
+        return new BuildingElementContext(siteId, buildingId, storeyId);
     }
 
     private static DMesh3 ExtractMesh(IIfcBuildingElement element, Xbim3DModelContext context)
