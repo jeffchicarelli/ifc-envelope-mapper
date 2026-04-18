@@ -32,7 +32,7 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 
 Construir uma ferramenta C#/.NET que identifica automaticamente elementos de fachada em modelos IFC usando **apenas geometria 3D** — sem depender de propriedades ou metadados do modelo.
 
-O trabalho propõe **um método computacional**, avaliado rigorosamente em modelos IFC de diferentes tipologias. O método implementa uma estratégia primária (`RayCastingDetectionStrategy`) e uma de fallback (`VoxelFloodFillStrategy`); a abordagem por normais fica reduzida a baseline trivial para fins de comparação. Decisão fundamentada em ADR-12.
+O trabalho propõe **um método computacional**, avaliado rigorosamente em modelos IFC de diferentes tipologias. O método implementa uma estratégia de produção única (`VoxelFloodFillStrategy` — van der Vaart 2022, com cascata 4-testes + 3 fases flood-fill + `FillGaps`) e mantém `RayCastingStrategy` (Ying 2022) implementada exclusivamente como baseline de comparação no capítulo de Resultados. Decisão fundamentada em ADR-14 (que superseda ADR-12 parcialmente).
 
 ---
 
@@ -49,8 +49,8 @@ O trabalho propõe **um método computacional**, avaliado rigorosamente em model
 |---|---|---|---|
 | **xBIM Essentials** | `Xbim.Essentials` | Leitura de modelos IFC, schema IFC4 | Ifc |
 | **xBIM Geometry** | `Xbim.Geometry` | Triangulação de geometria IFC via `Xbim3DModelContext` | Ifc |
-| **geometry4Sharp** | `geometry4Sharp` | Mesh 3D (`DMesh3`), ray casting, BVH, normais de face — namespace `g4`; fork ativo de `geometry3Sharp` (sucessor de fato no NuGet) | Core + Geometry |
-| **NetTopologySuite** | `NetTopologySuite` | Geometria 2D, operações de containment e projeção em plano | Geometry |
+| **geometry4Sharp** | `geometry4Sharp` | Mesh 3D (`DMesh3`), BVH (`DMeshAABBTree3`), normais (`MeshNormals`), plane-fit PCA (`OrthogonalPlaneFit3`), eigen (`SymmetricEigenSolver`), tri-AABB (`IntrTriangle3Box3`), esfera de Gauss (`NormalHistogram`) — namespace `g4`; fork ativo de `geometry3Sharp`. Mapeamento completo em ADR-13. | Core + Geometry + Algorithms |
+| **NetTopologySuite** | `NetTopologySuite` | Geometria 2D (containment, projeção em plano) + R-tree 3D (`STRtree`) para indexação de `BuildingElement` por AABB (ADR-13). | Geometry + Algorithms |
 | **DBSCAN** | `DBSCAN` (NuGet) | Clustering de normais sobre a esfera de Gauss | Algorithms |
 | **QuikGraph** | `QuikGraph` | Grafo de adjacência espacial, componentes conectados | Algorithms |
 | **System.CommandLine** | `System.CommandLine` | Parser de argumentos CLI | Cli |
@@ -366,9 +366,8 @@ IfcEnvelopeMapper/
 │   │
 │   ├── IfcEnvelopeMapper.Algorithms/     ← estratégias de detecção + agrupamento
 │   │   ├── Strategies/
-│   │   │   ├── NormalsStrategy.cs
-│   │   │   ├── RayCastingStrategy.cs
-│   │   │   └── VoxelFloodFillStrategy.cs
+│   │   │   ├── VoxelFloodFillStrategy.cs ← primária (ADR-14)
+│   │   │   └── RayCastingStrategy.cs     ← baseline de comparação P4 (ADR-14)
 │   │   └── Grouping/
 │   │       └── DbscanFacadeGrouper.cs    ← implementa IFacadeGrouper
 │   │   [deps: Core, Geometry, DBSCAN, QuikGraph]
@@ -445,23 +444,21 @@ IFC Model
 [Stage 1 — IDetectionStrategy.Detect()]
     │  DetectionResult (Envelope + ElementClassification[])
     │
-    │  Implementadas (ADR-12):
+    │  Implementadas (ADR-14 — superseda ADR-12 parcialmente):
     │
-    │  Primária: RayCastingStrategy (Ying 2022)
-    │    → BVH sobre todos os triângulos do modelo
-    │    → raio a partir de cada face na direção da normal
-    │    → face exposta = raio não intercepta outro elemento
-    │    → configurável (--ray-count, --hit-ratio)
-    │
-    │  Fallback: VoxelFloodFillStrategy (van der Vaart 2022 / Liu 2021)
-    │    → discretiza modelo em voxel grid 3D
-    │    → flood-fill a partir do exterior
-    │    → elemento com face adjacente a voxel "exterior" = exterior
+    │  Primária: VoxelFloodFillStrategy (van der Vaart 2022 / Liu 2021)
+    │    → discretiza modelo em voxel grid 3D (g4.IntrTriangle3Box3)
+    │    → cascata 4-testes de interseção voxel↔triângulo
+    │    → 3 fases flood-fill: growExterior → growInterior → growVoid
+    │    → FillGaps pós-processamento (robustez em meshes imperfeitas)
     │    → configurável (--voxel-size)
     │
-    │  Baseline (~20 linhas, só para comparação): NormalsStrategy
-    │    → classifica faces pela direção da normal em relação ao centroide
-    │    → referência histórica; não é estratégia completa (ADR-12)
+    │  Baseline de comparação: RayCastingStrategy (Ying 2022) — exclusivo P4
+    │    → BVH global (g4.DMeshAABBTree3)
+    │    → raio por face na direção da normal (com jitter)
+    │    → face exposta = raio escapa sem interceptar outro elemento
+    │    → configurável (--ray-count, --hit-ratio)
+    │    → propósito: comparação algorítmica no capítulo de Resultados
     │
     ▼
 [Stage 2 — IFacadeGrouper.Group(envelope)]
@@ -596,61 +593,75 @@ O `DbscanFacadeGrouper` consome só `model.Elements` e classifica 4 painéis em 
 
 ### Estágio 1 — Detecção de Exterior (IDetectionStrategy)
 
-O método implementa Ray Casting como estratégia primária e Voxel + Flood-Fill como fallback; Normais permanece apenas como baseline trivial para comparação no capítulo de Discussão (ADR-12). Os pseudocódigos abaixo documentam as três, mantidos por completude e para respaldo da tabela comparativa.
+O método implementa Voxel + Flood-Fill como estratégia primária (robustez em IFC real, referência canônica van der Vaart 2022) e Ray Casting como baseline de comparação (Ying 2022, caracteriza tradeoff precisão-vs-robustez no capítulo de Resultados). Normais foi descartada — ver ADR-14 que superseda ADR-12 parcialmente.
 
-#### Estratégia 1A: Heurísticas de Normais (baseline — ADR-12)
+#### Estratégia 1A: Voxel + Flood-Fill (primária — ADR-14)
+
+Arquitetura em 5 passos, alinhada ao IFC_BuildingEnvExtractor (`inc/voxelGrid.h`): cascata 4-testes para rasterização, 3 fases de flood-fill (`growExterior`/`growInterior`/`growVoid`), `FillGaps` pós-processamento para robustez em meshes com gaps/auto-interseções.
 
 ```
-FUNÇÃO NormalsDetect(elementos, anguloTolerancia) → DetectionResult
-    // Ref: Lu et al. (2022) — classificação de superfícies por orientação de normal
-    // Ref: Sacks et al. (2017) — operadores de "face externa"
-    centroideEdificio ← Média(elementos.Select(e → e.Centroid))
+FUNÇÃO VoxelFloodFillDetect(elementos, tamanhoVoxel) → DetectionResult
+    // Ref: van der Vaart (2022) — IFC_BuildingEnvExtractor
+    // Ref: Liu et al. (2021) — ExteriorTag (anotação voxel em IFC)
+    // Ref: Voxelization Toolkit (fill_gaps.h) — pós-processamento
+    // ADR-13: interseção via g4.IntrTriangle3Box3
 
-    classificacoes ← []
-    facesExteriores ← []
+    // PASSO 1: Discretizar modelo em grade 3D
+    bbox ← BoundingBoxGlobal(elementos) expandida por 2 * tamanhoVoxel
+    grid ← VoxelGrid3D(bbox, tamanhoVoxel)
 
+    // PASSO 2: Rasterizar — cascata 4-testes de interseção (van der Vaart 2022)
+    //   Ordem barato→caro; bails out no primeiro hit
     PARA CADA elem EM elementos:
-        mesh ← elem.Mesh
-        facesExt ← []
-        areaExterior ← 0
-        areaTotal ← 0
+        PARA CADA tri EM elem.Mesh.Triangulos:
+            voxelsCandidatos ← grid.VoxelsInBbox(tri.Bbox)
+            PARA CADA v EM voxelsCandidatos:
+                // (1) centro do voxel cai dentro do shape do produto?
+                // (2) vértice do triângulo cai no voxel?
+                // (3) aresta do triângulo cruza face do voxel?
+                // (4) aresta do voxel cruza face do triângulo?
+                SE g4.IntrTriangle3Box3(tri, v.Box).Intersects:
+                    grid[v].Ocupado ← VERDADEIRO
+                    grid[v].Elementos.Add(elem.GlobalId)   // provenance (ADR-04)
 
-        PARA CADA tri EM mesh.Triangulos:
-            normal ← tri.Normal
-            centro ← tri.Centroide
-            areaTotal += tri.Area
+    // PASSO 3: Flood-fill em 3 fases (van der Vaart 2022)
+    //   Fase A — growExterior: semente em canto do grid (garantido exterior)
+    grid.GrowExterior(semente = canto, conectividade = 26)
 
-            // Critério: normal aponta para fora do edifício?
-            direcaoParaFora ← (centro - centroideEdificio).Normalizado
-            angulo ← AnguloEntre(normal, direcaoParaFora)
-            SE angulo < anguloTolerancia:
-                facesExt.Add(tri)
-                areaExterior += tri.Area
+    //   Fase B — growInterior: vazios não alcançados por Exterior,
+    //   adjacentes a Ocupados → marcados como interior do edifício
+    grid.GrowInterior()
 
-        // Agrupar triângulos coplanares em Faces atômicas
-        facesAgrupadas ← AgruparPorPlanoAjustado(facesExt, elem)
+    //   Fase C — growVoid: agrupa voxels interiores em cômodos (roomNum)
+    //   permite distinguir paredes-meia de fachadas no reporting
+    grid.GrowVoid()
+
+    // PASSO 4: fill_gaps — fecha buracos de 1 voxel
+    //   Ref: Voxelization Toolkit fill_gaps.h
+    //   Robustez contra meshes com gaps/auto-interseções
+    grid.FillGaps()
+
+    // PASSO 5: Classificação — elemento com ≥1 face adjacente a voxel Exterior = exterior
+    PARA CADA elem EM elementos:
+        voxelsDoElemento ← grid.VoxelsOcupadosPor(elem.GlobalId)
+        temFaceExterior ← FALSO
+        PARA CADA v EM voxelsDoElemento:
+            SE algum Vizinho26(v) tem Exterior == VERDADEIRO:
+                temFaceExterior ← VERDADEIRO
+                BREAK
+
+        // Faces atômicas: triângulos cuja normal aponta para voxel Exterior,
+        //   agrupados coplanarmente via g4.OrthogonalPlaneFit3 (ADR-13)
+        facesAgrupadas ← ExtrairFacesVoltadasParaExterior(elem, grid)
         // Cada Face: {Element, TriangleIds, FittedPlane, Normal, Area, Centroid}
+        // ... classificação análoga (confidence, reasons) ...
 
-        razaoExterior ← areaExterior / areaTotal
-        confianca ← CalcularConfianca(razaoExterior)
-        ehExterior ← razaoExterior > LIMIAR_MINIMO
-
-        classificacoes.Add(ElementClassification(
-            element: elem,
-            isExterior: ehExterior,
-            confidence: confianca,
-            externalFaces: facesAgrupadas,
-            reasons: [FormatarRazoes(razaoExterior, angulo)]
-        ))
-
-        SE ehExterior:
-            facesExteriores.AddRange(facesAgrupadas)
-
-    envelope ← Envelope(faces: facesExteriores)
     RETORNAR DetectionResult(envelope, classificacoes)
 ```
 
-#### Estratégia 1B: Ray Casting (primária — ADR-12)
+#### Estratégia 1B: Ray Casting (baseline de comparação — ADR-14)
+
+Propósito: comparação algorítmica no capítulo de Resultados — caracteriza tradeoff precisão face-por-face (raycast) vs robustez volumétrica (voxel). Implementada exclusivamente em P4; não faz parte do pipeline de produção.
 
 ```
 FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
@@ -685,52 +696,7 @@ FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
                 MARCAR tri como exterior
 
         facesAgrupadas ← AgruparPorPlanoAjustado(triangulosExteriores, elem)
-        // ... classificação análoga à Estratégia 1A ...
-
-    RETORNAR DetectionResult(envelope, classificacoes)
-```
-
-#### Estratégia 1C: Voxel + Flood-Fill (fallback — ADR-12)
-
-```
-FUNÇÃO VoxelFloodFillDetect(elementos, tamanhoVoxel) → DetectionResult
-    // Ref: van der Vaart (2022) — IFC_BuildingEnvExtractor (voxelização + flood-fill)
-    // Ref: Liu et al. (2021) — ExteriorTag (anotação voxel em IFC)
-
-    // Discretizar modelo em grade 3D
-    bbox ← BoundingBoxGlobal(elementos) expandida por 2 * tamanhoVoxel
-    grid ← VoxelGrid3D(bbox, tamanhoVoxel)
-
-    // Rasterizar: marcar voxels ocupados por geometria
-    PARA CADA elem EM elementos:
-        PARA CADA tri EM elem.Mesh.Triangulos:
-            voxelsOcupados ← Voxelizar(tri, tamanhoVoxel)
-            PARA CADA v EM voxelsOcupados:
-                grid[v].Ocupado ← VERDADEIRO
-                grid[v].Elementos.Add(elem.GlobalId)
-
-    // Flood-fill BFS a partir de um voxel exterior (canto da grade)
-    semente ← grid.VoxelLivre(canto)
-    fila ← [semente]
-    ENQUANTO fila NÃO VAZIA:
-        v ← fila.RemoverPrimeiro()
-        grid[v].Exterior ← VERDADEIRO
-        PARA CADA vizinho EM grid.Vizinhos26(v):
-            SE vizinho NÃO Ocupado E NÃO visitado:
-                fila.Add(vizinho)
-
-    // Classificar: elemento com face adjacente a voxel exterior = exterior
-    PARA CADA elem EM elementos:
-        voxelsDoElemento ← grid.VoxelsOcupadosPor(elem.GlobalId)
-        temFaceExterior ← FALSO
-        PARA CADA v EM voxelsDoElemento:
-            SE algum Vizinho26(v) tem Exterior == VERDADEIRO:
-                temFaceExterior ← VERDADEIRO
-                BREAK
-
-        // Para faces atômicas: triângulos cuja normal aponta para voxel exterior
-        facesAgrupadas ← ExtrairFacesVoltadasParaExterior(elem, grid)
-        // ... classificação análoga ...
+        // ... agrupamento coplanar via g4.OrthogonalPlaneFit3 (ADR-13) ...
 
     RETORNAR DetectionResult(envelope, classificacoes)
 ```
@@ -752,6 +718,9 @@ FUNÇÃO DbscanGroup(envelope) → Facade[]
 
     // PASSO 2.1: Projetar normais na esfera de Gauss
     //   Cada face gera um ponto na esfera unitária: sua normal normalizada
+    //   Opção de pré-filtro (ADR-13): g4.NormalHistogram com SphericalFibonacciPointSet
+    //   discretiza a esfera em N bins; clustering subsequente opera só em bins
+    //   com contagem significativa. Avaliar em P5 se o ruído justificar.
     pontos ← faces.Select(f → f.Normal.Normalizado)
 
     // PASSO 2.2: DBSCAN com distância angular
@@ -862,25 +831,26 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 
 ## Tabela Comparativa das Estratégias de Detecção
 
-> A estratégia primária foi decidida em ADR-12 (RayCasting). Esta tabela permanece
-> como registro das alternativas investigadas — insumo para o capítulo de Discussão
-> e seção de Ameaças à Validade do TCC.
+> A decisão (ADR-14) é Voxel primária + RayCasting baseline. Esta tabela respalda
+> a escolha e alimenta o capítulo de Resultados — comparação algorítmica entre as duas.
 
-| Critério | Normais (baseline) | Ray Casting (primária) | Voxel + Flood-Fill (fallback) |
-|---|---|---|---|
-| **Papel no método (ADR-12)** | Baseline de comparação (~20 linhas) | Estratégia primária | Fallback quando RayCasting falha (gaps/auto-interseções) |
-| **Referência principal** | Lu et al. (2022); Sacks et al. (2017) | Ying et al. (2022) | van der Vaart (2022); Liu et al. (2021) |
-| **Princípio** | Orientação do vetor normal em relação ao centroide do edifício | Visibilidade: raio a partir da face na direção da normal escapa sem interceptar outro elemento | Adjacência a voxel exterior identificado por flood-fill |
-| **Complexidade temporal** | O(n) — linear no número de triângulos | O(n · k · log m) — k raios por face, log m para BVH | O(V) + O(n) — V voxels no grid, n triângulos para rasterização |
-| **Dependência de geometria global** | Baixa — apenas centroide | Alta — BVH com todos os triângulos | Alta — grid discreto do modelo inteiro |
-| **Sensibilidade a concavidades** | Alta — centroide pode estar fora de edificações em L/U | Baixa — raio testa visibilidade direta | Baixa — flood-fill contorna concavidades |
-| **Precisão em protuberâncias** | Baixa — faces laterais de balanços são mal classificadas | Alta — cada face é testada individualmente | Média — depende do tamanho do voxel |
-| **Parametrização** | `angle-tolerance` (graus) | `ray-count`, `hit-ratio` | `voxel-size` (metros) |
-| **Consumo de memória** | Baixo | Médio (BVH) | Alto (grade 3D) |
-| **Rastreabilidade** | Preservada nativamente | Preservada nativamente | Requer mapeamento voxel→elemento |
-| **Validação na literatura** | Parcial (Lu: binário, sem fachadas) | Forte (Ying: 99%+ em ray tracing recursivo) | Forte (van der Vaart: casca multi-LoD) |
+| Critério | Voxel + Flood-Fill (primária) | Ray Casting (baseline) |
+|---|---|---|
+| **Papel no método (ADR-14)** | Estratégia de produção | Comparação algorítmica no capítulo de Resultados |
+| **Referência principal** | van der Vaart (2022); Liu et al. (2021) | Ying et al. (2022) |
+| **Princípio** | Discretização em voxels + 3 fases flood-fill + classificação por adjacência exterior | Visibilidade: raio da face na direção da normal escapa sem interceptar outro elemento |
+| **Complexidade temporal** | O(V) + O(n) — V voxels no grid, n triângulos para rasterização | O(n · k · log m) — k raios por face, log m para BVH |
+| **Dependência de geometria global** | Alta — grid discreto do modelo inteiro | Alta — BVH com todos os triângulos |
+| **Robustez a meshes malformados** | Alta — voxel contorna gaps, auto-interseções, topologia ruim (motivo da escolha) | Baixa — raio sensível a gaps; falsos positivos em auto-interseções |
+| **Sensibilidade a concavidades** | Baixa — flood-fill contorna geometrias em L/U | Baixa — raio testa visibilidade direta |
+| **Precisão em protuberâncias** | Média — limitada pelo voxel size | Alta — cada face testada individualmente |
+| **Precisão em detalhes finos (ex: janelas <300mm)** | Limitada — voxel 0.5m perde detalhe | Alta — precisão da malha |
+| **Parametrização** | `voxel-size` (metros) | `ray-count`, `hit-ratio` |
+| **Consumo de memória** | Alto (grade 3D, O(V)) | Médio (BVH) |
+| **Rastreabilidade** | Preservada via `grid[v].Elementos` (padrão do EnvExtractor) | Preservada nativamente — raio por face do elemento |
+| **Validação na literatura** | Forte (van der Vaart: casca multi-LoD; projeto CHEK €5M) | Forte (Ying: 99%+ em ray tracing recursivo) |
 
-**Nota sobre a decisão (ADR-12).** A primária é Ray Casting por precisão superior em protuberâncias e suporte forte na literatura (Ying 2022). Voxel entra como fallback quando a malha do modelo tem gaps/auto-interseções que degradam visibilidade direta. Normais permanece como baseline trivial para comparação no capítulo de Discussão — não como estratégia candidata.
+**Nota sobre a decisão (ADR-14).** Voxel é primária pela robustez em IFC real — modelos com gaps, auto-interseções e topologia imperfeita são a norma, não a exceção (documentado em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). Ray Casting fica como baseline de comparação, caracterizando tradeoff precisão-vs-robustez. A `NormalsStrategy` (presente em ADR-12) foi descartada: baseline trivial não contribui comparação científica relevante — RayCasting é baseline mais forte, contrastando com método state-of-the-art validado.
 
 ---
 
@@ -1005,6 +975,47 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 **Consequência.** ADR-07 é redefinido: Viewer MVP é o entregável obrigatório; Viewer Completo é condicional. A ordem das Fases muda: testes/CI (P1) → RayCasting ponta-a-ponta (P2) → JsonReportWriter (P3) → Voxel fallback (P4) → DBSCAN grouper (P5) → Viewer MVP (P6). A tabela comparativa das três estratégias permanece no plano como registro de alternativas investigadas — valor para Discussão e Ameaças à Validade.
 
+> **Nota:** ADR-12 é **superseda parcialmente por ADR-14** quanto à escolha de estratégias. Permanecem válidos: Stage 1 antes de Stage 2, gate F1 ≥ 0.75, Viewer MVP como default. A ordem de fases e o papel das estratégias foram redefinidos — ver ADR-14.
+
+### ADR-13 — Aproveitamento máximo da stack para matemática e indexação espacial
+
+**Decisão.** Matemática de detecção e agrupamento (plane-fit PCA, eigen solver, interseção triângulo-AABB, histograma de normais na esfera de Gauss) usa classes já presentes em `geometry4Sharp`. Indexação espacial 3D de produtos usa `NetTopologySuite.STRtree` — lib já na stack para 2D. Nenhum `MathNet.Numerics` é adicionado; nenhum algoritmo clássico (Akenine-Möller tri-AABB) é re-implementado localmente.
+
+**Motivo.** Investigação das ferramentas de referência (Voxelization Toolkit, IFC_BuildingEnvExtractor) mostrou que ambas escreveram voxel storage e flood-fill do zero, mas delegaram math fundamental a Eigen/OCCT/Boost. A stack deste projeto já tem equivalentes maduros — manter enxuta reduz superfície de bugs e foca esforço no Stage 2, a contribuição original do TCC.
+
+**Consequência.** Mapeamento direto de decisões algorítmicas a classes .NET:
+
+| Componente do plano | Classe / lib |
+|---|---|
+| `Face.FittedPlane` via PCA (ADR-04) | `g4.OrthogonalPlaneFit3` |
+| Normais de mesh (ponderadas por área) | `g4.MeshNormals` |
+| Eigen genérico (se portar `dimensionality_estimate`) | `g4.SymmetricEigenSolver` |
+| Voxelização — interseção triângulo-AABB (P2+P3) | `g4.IntrTriangle3Box3` |
+| Esfera de Gauss pré-discretizada (P5, opcional) | `g4.NormalHistogram` |
+| Indexação R-tree 3D de `BuildingElement` por AABB | `NetTopologySuite.STRtree` |
+| Ray casting (BVH) — baseline P4 | `g4.DMeshAABBTree3` |
+| Clustering DBSCAN | `DBSCAN` (NuGet) |
+| Grafo + componentes conectados | `QuikGraph` |
+
+Se surgir necessidade fora deste mapeamento, avaliar primeiro se a lib já atende antes de adicionar dependência.
+
+### ADR-14 — Consolidação: 1 primária (Voxel) + 1 baseline (RayCasting), Normais descartada
+
+**Superseda ADR-12** nos itens: (a) escolha da primária, (b) papel do RayCasting, (c) presença de `NormalsStrategy`. Mantém de ADR-12: Stage 1 antes de Stage 2, Viewer MVP como default, stage gate F1 ≥ 0.75.
+
+**Decisão.** Estratégia de produção única: `VoxelFloodFillStrategy` (van der Vaart 2022 + extensões: cascata 4-testes, 3 fases flood-fill, `FillGaps`). `RayCastingStrategy` (Ying 2022) permanece implementada exclusivamente como baseline de comparação no capítulo de Resultados — não é usada em produção. `NormalsStrategy` é descartada completamente.
+
+**Motivo.** (a) Voxel é robusto por design em IFC real — malformed meshes são norma, não exceção; sua própria avaliação do `IFC_BuildingEnvExtractor` documenta isso (`Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). (b) A contribuição original do TCC é Stage 2 (fachada como composto + DBSCAN sobre Gauss sphere) — Stage 1 deve ser confiável, não comparativo superficial entre 3 alternativas. (c) Baseline trivial (Normais ~20 linhas) prova contribuição científica zero; RayCasting como baseline caracteriza tradeoff substantivo precisão-vs-robustez contra state-of-the-art validado (Ying 99%+). (d) Prazo até abr/2027 favorece profundidade sobre largura: 1 implementação robusta + 1 baseline comparativo é mais defensável que 2 primárias superficiais + 1 trivial.
+
+**Consequência.**
+- CLI default: `--strategy voxel` (removidas `raycast` como default e `normals` como opção).
+- Ordem das Fases atualizada: P1 (infra) → P2+P3 (Voxel primária ponta-a-ponta + JsonReportWriter) → P4 (RayCasting baseline para Resultados) → P5 (DbscanFacadeGrouper) → P6 (Viewer MVP).
+- Pseudocódigo 1A (Normais) removido do plano; 1B (RayCasting) reclassificado como baseline; 1C (Voxel) renomeado para 1A e expandido como primária com cascata 4-testes + 3 fases + `FillGaps`.
+- Provenance em Voxel: cada voxel mantém `Elementos` (set de `GlobalId`) ao ser marcado ocupado; classificação final lê essa lista. Padrão replicado do `internalProducts_` do EnvExtractor.
+- Contingência: se voxel em P2 falhar em fixtures com detalhes finos (ex: janelas <300mm) e não houver calibração satisfatória via `voxel-size`, reconsiderar voxel adaptativo ou (última opção) RayCasting como primária. Decisão documentada em novo ADR caso necessário.
+
+**Ameaças à validade (registrar na dissertação).** Dropar Normais significa perder o baseline "trivial" clássico. Mitigação narrativa: RayCasting é baseline mais forte — argumento na banca será *"comparamos com método state-of-the-art validado, não com heurística ingênua"*. Perda da análise "voxel como fallback": reformulada como *"voxel como primária por robustez, raycast como comparação de precisão"* — narrativa mais clara.
+
 ---
 
 ## Determinismo do Método
@@ -1047,11 +1058,11 @@ foreach (var facade in facades)
 {
   "run": {
     "model": "duplex.ifc",
-    "strategy": "normals",
+    "strategy": "voxel",
     "grouper": "dbscan",
     "timestamp": "2026-04-10T14:30:00Z",
     "parameters": {
-      "angleTolerance": 15,
+      "voxelSize": 0.5,
       "confidence": 0.0
     }
   },
@@ -1193,7 +1204,7 @@ Após ADR-12, o Viewer MVP é o default e o escopo Completo (edição + export B
 ifcenvmapper detect <model.ifc> [opções]
 
 Opções globais:
-  --strategy      <raycast|voxelflood|normals>   Estratégia de detecção     [padrão: raycast — ADR-12]
+  --strategy      <voxel|raycast>                Estratégia de detecção     [padrão: voxel — ADR-14]
   --grouper       <dbscan|directional>           Agrupamento em fachadas    [padrão: dbscan]
   --output        <path>                         Diretório de saída         [padrão: ./output]
   --format        <json|bcf|both>                Formato do relatório       [padrão: json]
@@ -1202,14 +1213,14 @@ Opções globais:
   --verbose                                      Logging detalhado
 
 Opções específicas por estratégia:
-  --angle-tolerance <graus>     [normals]      Desvio máximo da vertical  [padrão: 15]
+  --voxel-size      <metros>    [voxel]        Aresta do voxel            [padrão: 0.5]
   --ray-count       <int>       [raycast]      Raios por centroide        [padrão: 64]
   --hit-ratio       <float>     [raycast]      Razão mínima exterior      [padrão: 0.5]
-  --voxel-size      <metros>    [voxelflood]   Aresta do voxel            [padrão: 0.5]
 
 Exemplos:
   ifcenvmapper detect duplex.ifc
-  ifcenvmapper detect duplex.ifc --strategy raycast --ray-count 128 --output results/
+  ifcenvmapper detect duplex.ifc --voxel-size 0.25 --output results/
+  ifcenvmapper detect duplex.ifc --strategy raycast --ray-count 128   # baseline P4
   ifcenvmapper detect duplex.ifc --ground-truth data/ground-truth/duplex.csv
   ifcenvmapper detect duplex.ifc --format both
 ```
@@ -1291,21 +1302,23 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 2 — P2+P3: RayCasting ponta-a-ponta + JsonReportWriter (mai–ago/2026)
-**Meta:** `dotnet run detect duplex.ifc --strategy raycast` produz JSON v2 completo com F1 real contra ground truth mínimo.
-**Critério de sucesso:** JSON com `summary`, `classifications`, `aggregates`, `diagnostics`; F1 ≥ 0.75 em ≥ 1 fixture — **stage gate para Fase 4/5** (DBSCAN só inicia depois).
+### Fase 2 — P2+P3: Voxel ponta-a-ponta + JsonReportWriter (mai–ago/2026)
+**Meta:** `dotnet run detect duplex.ifc` produz JSON v2 completo com F1 real contra ground truth mínimo.
+**Referência canônica:** van der Vaart (2022) — IFC_BuildingEnvExtractor (`inc/voxelGrid.h`, `voxel.h`, `helper.h`). Código-fonte completo disponível em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor-master/`.
+**Critério de sucesso:** JSON com `summary`, `classifications`, `aggregates`, `diagnostics`; F1 ≥ 0.75 em ≥ 1 fixture — **stage gate para Fase 5** (DBSCAN só inicia depois).
 
 **Detecção (Stage 1) — P2:**
-- [ ] `GeometricOps`: plane fitting PCA, face normals, clustering angular, building centroid
-- [ ] `RayCastingStrategy : IDetectionStrategy` — primária, BVH via geometry4Sharp (ADR-12)
-- [ ] `NormalsStrategy` baseline trivial (~20 linhas) para comparação interna
+- [ ] `GeometricOps`: plane fitting via `g4.OrthogonalPlaneFit3` (ADR-13), face normals via `g4.MeshNormals`, building bbox
+- [ ] `VoxelGrid3D` — grid denso com cascata 4-testes usando `g4.IntrTriangle3Box3` (ADR-13); provenance via `grid[v].Elementos`
+- [ ] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` pós-processamento (ADR-14)
+- [ ] Opcional: indexação R-tree de `BuildingElement` via `NetTopologySuite.STRtree` para acelerar `VoxelsInBbox` (ADR-13)
 - [ ] `DetectionResult` (Envelope + ElementClassification[])
 - [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
 
 **Saída mínima (Cli) — P3:**
 - [ ] `ReportBuilder` + `JsonReportWriter` (schema v2 sem `facades` ainda — adicionado em P5)
 - [ ] CSV ground-truth loader + Precisão/Recall/F1/Kappa
-- [ ] `System.CommandLine`: flags documentadas (§ CLI v2), `raycast` como padrão
+- [ ] `System.CommandLine`: flags documentadas (§ CLI v2), `voxel` como padrão (ADR-14)
 - [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
 
 **Marco paralelo — Spike Viewer (1 semana, mai/2026):**
@@ -1315,16 +1328,16 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 3 — P4: Fallback Voxel + decisão da primária (ago–set/2026)
-**Meta:** implementar `VoxelFloodFillStrategy` como fallback e validar que RayCasting continua sendo a primária em diferentes tipologias.
-**Critério de sucesso:** F1 das duas estratégias reportado em 2–3 modelos; decisão registrada na dissertação (tipicamente RayCasting prevalece, Voxel cobre casos com gaps/auto-interseções).
+### Fase 3 — P4: RayCasting como baseline de comparação (ago–set/2026)
+**Meta:** implementar `RayCastingStrategy` (Ying 2022) exclusivamente para comparação algorítmica no capítulo de Resultados.
+**Critério de sucesso:** F1 do RayCasting reportado em 2–3 modelos representativos; tabela comparativa Voxel vs RayCasting na dissertação, caracterizando tradeoff precisão-vs-robustez (§ Tabela Comparativa).
 
-- [ ] `VoxelFloodFillStrategy` (VoxelGrid3D + flood-fill BFS)
+- [ ] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13)
 - [ ] Testes unitários da estratégia
-- [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar fallback)
-- [ ] **Stage gate qualidade (set/2026):** se F1 de RayCasting < 0.75 em fixtures principais → intensificar calibração antes de avançar; Viewer permanece em escopo MVP (ADR-07 revisado)
+- [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
+- [ ] **Stage gate qualidade (set/2026):** se F1 de Voxel < 0.75 em fixtures principais → calibrar `voxel-size` ou considerar voxel adaptativo (ADR-14 contingência); Viewer permanece em escopo MVP (ADR-07 revisado)
 
-> Normais permanece apenas como baseline de comparação, nunca como estratégia candidata (ADR-12).
+> RayCasting é baseline de comparação, não fallback de produção (ADR-14). Se Voxel falhar em fixtures críticos, a resposta é calibrar Voxel, não trocar estratégia.
 
 ---
 
