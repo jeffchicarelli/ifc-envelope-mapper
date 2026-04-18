@@ -1,4 +1,4 @@
-using IfcEnvelopeMapper.Core.Building;
+using IfcEnvelopeMapper.Core.Element;
 
 namespace IfcEnvelopeMapper.Tests;
 

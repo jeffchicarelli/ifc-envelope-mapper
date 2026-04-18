@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Core.Pipeline;
+namespace IfcEnvelopeMapper.Core.Loading;
 
 public interface IElementFilter
 {

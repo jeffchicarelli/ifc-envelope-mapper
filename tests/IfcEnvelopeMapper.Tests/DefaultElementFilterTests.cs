@@ -1,4 +1,4 @@
-using IfcEnvelopeMapper.Core.Pipeline;
+using IfcEnvelopeMapper.Core.Loading;
 
 namespace IfcEnvelopeMapper.Tests;
 

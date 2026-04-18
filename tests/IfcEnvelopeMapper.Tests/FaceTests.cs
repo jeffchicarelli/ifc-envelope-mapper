@@ -1,6 +1,6 @@
 using g4;
-using IfcEnvelopeMapper.Core.Building;
-using IfcEnvelopeMapper.Core.Geometry;
+using IfcEnvelopeMapper.Core.Element;
+using IfcEnvelopeMapper.Core.Surface;
 
 namespace IfcEnvelopeMapper.Tests;
 

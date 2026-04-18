@@ -1,6 +1,6 @@
-using IfcEnvelopeMapper.Core.Building;
+using IfcEnvelopeMapper.Core.Element;
 
-namespace IfcEnvelopeMapper.Core.Pipeline;
+namespace IfcEnvelopeMapper.Core.Loading;
 
 public sealed record ModelLoadResult(
     IReadOnlyList<BuildingElement> Elements,

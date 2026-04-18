@@ -1,6 +1,6 @@
 using g4;
 
-namespace IfcEnvelopeMapper.Core.Building;
+namespace IfcEnvelopeMapper.Core.Element;
 
 public sealed class BuildingElement : IEquatable<BuildingElement>
 {

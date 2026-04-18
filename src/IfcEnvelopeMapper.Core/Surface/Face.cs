@@ -1,7 +1,7 @@
 using g4;
-using IfcEnvelopeMapper.Core.Building;
+using IfcEnvelopeMapper.Core.Element;
 
-namespace IfcEnvelopeMapper.Core.Geometry;
+namespace IfcEnvelopeMapper.Core.Surface;
 
 public sealed class Face
 {
