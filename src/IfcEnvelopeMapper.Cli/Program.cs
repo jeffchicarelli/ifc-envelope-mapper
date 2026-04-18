@@ -1,4 +1,4 @@
-using IfcEnvelopeMapper.Core.Pipeline;
+using IfcEnvelopeMapper.Core.Loading;
 using IfcEnvelopeMapper.Ifc;
 
 var ifcPath = FindUpward("data/models/duplex.ifc")

@@ -1,6 +1,6 @@
 using g4;
-using IfcEnvelopeMapper.Core.Building;
-using IfcEnvelopeMapper.Core.Pipeline;
+using IfcEnvelopeMapper.Core.Element;
+using IfcEnvelopeMapper.Core.Loading;
 using Xbim.Common.Geometry;
 using Xbim.Common.XbimExtensions;
 using Xbim.Ifc;
