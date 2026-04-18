@@ -2,7 +2,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
 
-namespace IfcEnvelopeMapper.Tests;
+namespace IfcEnvelopeMapper.Tests.Surface;
 
 public class FaceTests
 {

@@ -1,7 +1,7 @@
 using g4;
 using IfcEnvelopeMapper.Core.Element;
 
-namespace IfcEnvelopeMapper.Tests;
+namespace IfcEnvelopeMapper.Tests.Element;
 
 public class BuildingElementGroupTests
 {

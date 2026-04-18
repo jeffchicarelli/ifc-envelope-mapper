@@ -1,6 +1,6 @@
 using IfcEnvelopeMapper.Core.Loading;
 
-namespace IfcEnvelopeMapper.Tests;
+namespace IfcEnvelopeMapper.Tests.Loading;
 
 public class DefaultElementFilterTests
 {
