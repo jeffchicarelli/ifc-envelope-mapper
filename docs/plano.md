@@ -1,7 +1,7 @@
 # Plano de Implementação — IfcEnvelopeMapper
 
 > Documento vivo. Atualizar a cada sessão de desenvolvimento.
-> Última atualização: 2026-04-17
+> Última atualização: 2026-04-18
 
 ---
 
@@ -32,7 +32,7 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 
 Construir uma ferramenta C#/.NET que identifica automaticamente elementos de fachada em modelos IFC usando **apenas geometria 3D** — sem depender de propriedades ou metadados do modelo.
 
-O trabalho propõe **um método computacional**, avaliado rigorosamente em modelos IFC de diferentes tipologias. Três estratégias geométricas são exploradas durante o desenvolvimento; a mais adequada é selecionada como estratégia primária do método.
+O trabalho propõe **um método computacional**, avaliado rigorosamente em modelos IFC de diferentes tipologias. O método implementa uma estratégia primária (`RayCastingDetectionStrategy`) e uma de fallback (`VoxelFloodFillStrategy`); a abordagem por normais fica reduzida a baseline trivial para fins de comparação. Decisão fundamentada em ADR-12.
 
 ---
 
@@ -445,23 +445,23 @@ IFC Model
 [Stage 1 — IDetectionStrategy.Detect()]
     │  DetectionResult (Envelope + ElementClassification[])
     │
-    │  Estratégia selecionada durante desenvolvimento:
+    │  Implementadas (ADR-12):
     │
-    │  Candidata 1: NormalsStrategy
-    │    → calcula proporção de faces com normal "para fora"
-    │    → threshold configurável (--angle-tolerance)
-    │
-    │  Candidata 2: RayCastingStrategy
+    │  Primária: RayCastingStrategy (Ying 2022)
     │    → BVH sobre todos os triângulos do modelo
     │    → raio a partir de cada face na direção da normal
     │    → face exposta = raio não intercepta outro elemento
     │    → configurável (--ray-count, --hit-ratio)
     │
-    │  Candidata 3: VoxelFloodFillStrategy
+    │  Fallback: VoxelFloodFillStrategy (van der Vaart 2022 / Liu 2021)
     │    → discretiza modelo em voxel grid 3D
     │    → flood-fill a partir do exterior
     │    → elemento com face adjacente a voxel "exterior" = exterior
     │    → configurável (--voxel-size)
+    │
+    │  Baseline (~20 linhas, só para comparação): NormalsStrategy
+    │    → classifica faces pela direção da normal em relação ao centroide
+    │    → referência histórica; não é estratégia completa (ADR-12)
     │
     ▼
 [Stage 2 — IFacadeGrouper.Group(envelope)]
@@ -596,9 +596,9 @@ O `DbscanFacadeGrouper` consome só `model.Elements` e classifica 4 painéis em 
 
 ### Estágio 1 — Detecção de Exterior (IDetectionStrategy)
 
-Três estratégias candidatas são exploradas. A mais adequada é selecionada durante desenvolvimento.
+O método implementa Ray Casting como estratégia primária e Voxel + Flood-Fill como fallback; Normais permanece apenas como baseline trivial para comparação no capítulo de Discussão (ADR-12). Os pseudocódigos abaixo documentam as três, mantidos por completude e para respaldo da tabela comparativa.
 
-#### Estratégia 1A: Heurísticas de Normais
+#### Estratégia 1A: Heurísticas de Normais (baseline — ADR-12)
 
 ```
 FUNÇÃO NormalsDetect(elementos, anguloTolerancia) → DetectionResult
@@ -650,7 +650,7 @@ FUNÇÃO NormalsDetect(elementos, anguloTolerancia) → DetectionResult
     RETORNAR DetectionResult(envelope, classificacoes)
 ```
 
-#### Estratégia 1B: Ray Casting
+#### Estratégia 1B: Ray Casting (primária — ADR-12)
 
 ```
 FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
@@ -690,7 +690,7 @@ FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
     RETORNAR DetectionResult(envelope, classificacoes)
 ```
 
-#### Estratégia 1C: Voxel + Flood-Fill
+#### Estratégia 1C: Voxel + Flood-Fill (fallback — ADR-12)
 
 ```
 FUNÇÃO VoxelFloodFillDetect(elementos, tamanhoVoxel) → DetectionResult
@@ -862,12 +862,13 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 
 ## Tabela Comparativa das Estratégias de Detecção
 
-> O trabalho propõe **um método** e seleciona a estratégia primária durante o desenvolvimento.
-> Esta tabela documenta as alternativas investigadas como base para a decisão fundamentada
-> e para o capítulo de Discussão do TCC.
+> A estratégia primária foi decidida em ADR-12 (RayCasting). Esta tabela permanece
+> como registro das alternativas investigadas — insumo para o capítulo de Discussão
+> e seção de Ameaças à Validade do TCC.
 
-| Critério | Normais (1A) | Ray Casting (1B) | Voxel + Flood-Fill (1C) |
+| Critério | Normais (baseline) | Ray Casting (primária) | Voxel + Flood-Fill (fallback) |
 |---|---|---|---|
+| **Papel no método (ADR-12)** | Baseline de comparação (~20 linhas) | Estratégia primária | Fallback quando RayCasting falha (gaps/auto-interseções) |
 | **Referência principal** | Lu et al. (2022); Sacks et al. (2017) | Ying et al. (2022) | van der Vaart (2022); Liu et al. (2021) |
 | **Princípio** | Orientação do vetor normal em relação ao centroide do edifício | Visibilidade: raio a partir da face na direção da normal escapa sem interceptar outro elemento | Adjacência a voxel exterior identificado por flood-fill |
 | **Complexidade temporal** | O(n) — linear no número de triângulos | O(n · k · log m) — k raios por face, log m para BVH | O(V) + O(n) — V voxels no grid, n triângulos para rasterização |
@@ -879,7 +880,7 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 | **Rastreabilidade** | Preservada nativamente | Preservada nativamente | Requer mapeamento voxel→elemento |
 | **Validação na literatura** | Parcial (Lu: binário, sem fachadas) | Forte (Ying: 99%+ em ray tracing recursivo) | Forte (van der Vaart: casca multi-LoD) |
 
-**Critério de seleção:** A estratégia primária será escolhida com base nos resultados preliminares em 2-3 modelos IFC de diferentes tipologias (planta retangular, planta em L, geometria complexa). Métrica de decisão: F1-score macro-médio na tarefa de classificação binária exterior/interior.
+**Nota sobre a decisão (ADR-12).** A primária é Ray Casting por precisão superior em protuberâncias e suporte forte na literatura (Ying 2022). Voxel entra como fallback quando a malha do modelo tem gaps/auto-interseções que degradam visibilidade direta. Normais permanece como baseline trivial para comparação no capítulo de Discussão — não como estratégia candidata.
 
 ---
 
@@ -956,13 +957,13 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 **Consequência.** Há duas implementações de BCF no projeto. A do Viewer pode divergir (anotações manuais, viewpoints editados) da do CLI (viewpoints gerados). Compartilhar código via biblioteca BCF comum (`iabi.BCF` ou equivalente) quando possível.
 
-### ADR-07 — Viewer Completo: render + edição + export BCF
+### ADR-07 — Viewer MVP default; Completo como stretch goal (revisado por ADR-12)
 
-**Decisão.** Viewer implementa render 3D dos meshes coloridos por fachada, inspeção por elemento, filtro exterior/interior, **edição manual de rotulação** e **export BCF**. Recorte "Completo" (vs. "MVP só-visualização" que foi rejeitado).
+**Decisão.** O entregável obrigatório do Viewer é o **MVP**: render 3D dos meshes coloridos por fachada, inspeção por elemento e filtro exterior/interior. **Edição manual de rotulação** e **export BCF** são *stretch goals* condicionais a stage gates (F1 do Stage 1 aceitável + tempo de cronograma). A versão anterior desta ADR tratava o Viewer Completo como obrigatório; ADR-12 reclassificou.
 
-**Motivo.** Evita dependência de BIMCollab/BIMvision. Ferramenta vira *curadoria assistida* — contribuição mais forte para a banca. BCF editado cria *loop* natural com outras ferramentas AEC. Responde ao critério #4 do TCC (≥4 ferramentas BIM): o próprio Viewer é uma delas.
+**Motivo.** Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa. O MVP já satisfaz o critério #4 do TCC (≥4 ferramentas BIM) quando somado a Revit/ArchiCAD/FME/Solibri na validação. Edição + BCF entram apenas se houver folga após P1–P5.
 
-**Consequência.** Risco alto de cronograma — ver seção Viewer (§ Viewer) para stage gates, spike técnico e plano de contingência se F1<0.60 em set/2026.
+**Consequência.** Contingência documentada: se F1 < 0.75 até set/2026 ou se cronograma estiver apertado, o Viewer permanece em escopo MVP e BCF é gerado pela CLI (ADR-06). Stage gates detalhados continuam na seção Viewer (§ Viewer).
 
 ### ADR-08 — `BuildingElement` anêmico + `IEquatable` + `BuildingElementContext`
 
@@ -995,6 +996,14 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 **Motivo.** Modelo único com `Mesh` opcional e `Children` opcional criava estados inválidos (átomo com children, agregador sem children). O split elimina isso por construção. Algoritmos consomem só `model.Elements` — comportamento trivial, sem `LeavesDeep`. `Groups` servem à rastreabilidade no relatório JSON e ao Viewer.
 
 **Consequência.** `BuildingElement.GroupGlobalId` é back-ref opcional por `string` (evita ciclos em serialização). Filho sem geometria (ex: `IfcCurtainWallPanel` vazio) é descartado pelo loader — não vira Element, não entra em `Group.Elements`.
+
+### ADR-12 — Escopo reduzido: 1 primária + 1 fallback + baseline, Stage 1 antes de Stage 2, Viewer MVP default
+
+**Decisão.** O método implementa **uma** estratégia primária (`RayCastingDetectionStrategy`, Ying 2022) e **uma** estratégia de fallback (`VoxelFloodFillStrategy`, van der Vaart 2022 / Liu 2021). `NormalsStrategy` é reduzida a baseline trivial de ~20 linhas, usada apenas para comparação no capítulo de Discussão; não é mais estratégia completa. O pipeline é serializado: Stage 1 (detecção + cálculo de F1 sobre ground truth) precede Stage 2 (agrupamento DBSCAN); Stage 2 não inicia até F1 do Stage 1 ser aceitável (gate ≥ 0.75 conforme critério do projeto). O Viewer entrega um MVP (render 3D + cores por fachada) como default; edição manual e export BCF (escopo do ADR-07 original) ficam como stretch goals sob stage gate.
+
+**Motivo.** (a) Prazo até abr/2027 não comporta três estratégias implementadas em paralelo; literatura (Ying 2022; van der Vaart 2022) sustenta RayCasting + Voxel como combinação suficiente e complementar. (b) DBSCAN depende criticamente da qualidade do Envelope; calibrar agrupamento antes de ter detecção confiável é desperdício de esforço. (c) Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa — MVP satisfaz o critério "≥4 ferramentas BIM" quando somado a Revit/ArchiCAD/FME/Solibri para validação.
+
+**Consequência.** ADR-07 é redefinido: Viewer MVP é o entregável obrigatório; Viewer Completo é condicional. A ordem das Fases muda: testes/CI (P1) → RayCasting ponta-a-ponta (P2) → JsonReportWriter (P3) → Voxel fallback (P4) → DBSCAN grouper (P5) → Viewer MVP (P6). A tabela comparativa das três estratégias permanece no plano como registro de alternativas investigadas — valor para Discussão e Ameaças à Validade.
 
 ---
 
@@ -1140,13 +1149,13 @@ Viewer **nunca re-executa o pipeline**. Isso preserva a relação clara *CLI = a
 
 ### Stage gates e contingência
 
-Viewer Completo tem risco alto de cronograma. Para não comprometer o pipeline:
+Após ADR-12, o Viewer MVP é o default e o escopo Completo (edição + export BCF) é stretch goal. Os stage gates abaixo condicionam a entrada no escopo Completo; não impedem o MVP.
 
-1. **Spike técnico — 1 semana, mai/2026.** Carregar 1 mesh, renderizar com three.js via Blazor interop, clicar num elemento e ler o GlobalId no servidor. **Decisão go/no-go** ao fim. Se *no-go*: Viewer vira MVP estático (render + cores, sem edição, sem BCF) e BCF fica só no CLI.
+1. **Spike técnico — 1 semana, mai/2026.** Carregar 1 mesh, renderizar com three.js via Blazor interop, clicar num elemento e ler o GlobalId no servidor. **Decisão go/no-go** ao fim. Se *no-go*: Viewer permanece em MVP (render + cores, sem edição, sem BCF) e BCF fica só no CLI.
 
-2. **Stage gate bloqueante — Viewer não começa até pipeline produzir JSON válido** em ≥1 fixture. Atualmente: pipeline em Fase 0 (loader só). Viewer fica congelado até Fase 1 completa (Stage 1 + Stage 2 + `JsonReportWriter`).
+2. **Stage gate bloqueante — Viewer não começa até pipeline produzir JSON válido** em ≥ 1 fixture (P3 concluído). Aplica-se também ao MVP.
 
-3. **Stage gate de qualidade — set/2026.** Se F1 em fixtures estiver <0.60, Viewer é reduzido a MVP (render + cores, sem edição/BCF). Decisão documentada em ADR e commitada ao `docs/plano.md`.
+3. **Stage gate de qualidade — set/2026.** Se F1 em fixtures estiver < 0.75 (gate de ADR-12), Viewer permanece em MVP e o escopo Completo é adiado como Trabalho Futuro.
 
 ### Cronograma
 
@@ -1184,7 +1193,7 @@ Viewer Completo tem risco alto de cronograma. Para não comprometer o pipeline:
 ifcenvmapper detect <model.ifc> [opções]
 
 Opções globais:
-  --strategy      <normals|raycast|voxelflood>   Estratégia de detecção     [padrão: normals]
+  --strategy      <raycast|voxelflood|normals>   Estratégia de detecção     [padrão: raycast — ADR-12]
   --grouper       <dbscan|directional>           Agrupamento em fachadas    [padrão: dbscan]
   --output        <path>                         Diretório de saída         [padrão: ./output]
   --format        <json|bcf|both>                Formato do relatório       [padrão: json]
@@ -1246,9 +1255,9 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 1 — Modelo refinado + testes-base (ATUAL — abr–mai/2026)
-**Meta:** absorver ADRs 02-11 no código e estabelecer infraestrutura de testes.
-**Critério de sucesso:** `dotnet test` passa com ≥20 testes; loader retorna `ModelLoadResult(Elements, Groups)` determinístico.
+### Fase 1 — P1: Modelo refinado + testes-base + CI (ATUAL — abr–mai/2026)
+**Meta:** absorver ADRs 02-12 no código e estabelecer infraestrutura de testes antes de qualquer algoritmo novo.
+**Critério de sucesso:** `dotnet test` passa com ≥15 testes em CI GitHub Actions; loader retorna `ModelLoadResult(Elements, Groups)` determinístico.
 
 **Domínio (Core):**
 - [ ] `BuildingElementContext` (record struct, ADR-08)
@@ -1282,76 +1291,83 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 2 — Pipeline end-to-end (mai–ago/2026)
-**Meta:** `dotnet run detect duplex.ifc --strategy normals` produz JSON v2 completo.
-**Critério de sucesso:** JSON com `summary`, `classifications`, `facades`, `aggregates`, `diagnostics`; WWR calculado; F1 opcional via `--ground-truth`.
+### Fase 2 — P2+P3: RayCasting ponta-a-ponta + JsonReportWriter (mai–ago/2026)
+**Meta:** `dotnet run detect duplex.ifc --strategy raycast` produz JSON v2 completo com F1 real contra ground truth mínimo.
+**Critério de sucesso:** JSON com `summary`, `classifications`, `aggregates`, `diagnostics`; F1 ≥ 0.75 em ≥ 1 fixture — **stage gate para Fase 4/5** (DBSCAN só inicia depois).
 
-**Detecção (Stage 1):**
+**Detecção (Stage 1) — P2:**
 - [ ] `GeometricOps`: plane fitting PCA, face normals, clustering angular, building centroid
-- [ ] `NormalsStrategy : IDetectionStrategy`
+- [ ] `RayCastingStrategy : IDetectionStrategy` — primária, BVH via geometry4Sharp (ADR-12)
+- [ ] `NormalsStrategy` baseline trivial (~20 linhas) para comparação interna
 - [ ] `DetectionResult` (Envelope + ElementClassification[])
-
-**Agrupamento (Stage 2):**
-- [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN + QuikGraph)
 - [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
 
-**Saída (Cli):**
-- [ ] `ReportBuilder` + `JsonReportWriter` (schema v2 com `aggregates` + `diagnostics`)
-- [ ] `BcfWriter` (ADR-06) — escopo mínimo: tópicos + viewpoints + GlobalId
+**Saída mínima (Cli) — P3:**
+- [ ] `ReportBuilder` + `JsonReportWriter` (schema v2 sem `facades` ainda — adicionado em P5)
 - [ ] CSV ground-truth loader + Precisão/Recall/F1/Kappa
-- [ ] `System.CommandLine`: flags documentadas (§ CLI v2)
+- [ ] `System.CommandLine`: flags documentadas (§ CLI v2), `raycast` como padrão
 - [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
 
 **Marco paralelo — Spike Viewer (1 semana, mai/2026):**
 - [ ] Blazor Server scaffold + three.js interop
 - [ ] Carregar 1 mesh + render + click → GlobalId no servidor
-- [ ] Decisão go/no-go para escopo Completo do Viewer (§ Viewer)
+- [ ] Confirma viabilidade do Viewer MVP para P6
 
 ---
 
-### Fase 3 — Estratégias alternativas + seleção (ago–set/2026)
-**Meta:** comparar 3 estratégias e justificar a seleção da primária.
-**Critério de sucesso:** F1 reportado por estratégia em 2–3 modelos; decisão documentada na dissertação.
+### Fase 3 — P4: Fallback Voxel + decisão da primária (ago–set/2026)
+**Meta:** implementar `VoxelFloodFillStrategy` como fallback e validar que RayCasting continua sendo a primária em diferentes tipologias.
+**Critério de sucesso:** F1 das duas estratégias reportado em 2–3 modelos; decisão registrada na dissertação (tipicamente RayCasting prevalece, Voxel cobre casos com gaps/auto-interseções).
 
-- [ ] `RayCastingStrategy` (geometry4Sharp BVH)
 - [ ] `VoxelFloodFillStrategy` (VoxelGrid3D + flood-fill BFS)
-- [ ] Testes unitários por estratégia
-- [ ] Comparação em fixtures + seleção fundamentada
-- [ ] **Stage gate qualidade (set/2026):** se F1<0.60 em fixtures → Viewer vira MVP
+- [ ] Testes unitários da estratégia
+- [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar fallback)
+- [ ] **Stage gate qualidade (set/2026):** se F1 de RayCasting < 0.75 em fixtures principais → intensificar calibração antes de avançar; Viewer permanece em escopo MVP (ADR-07 revisado)
 
-> Estratégias alternativas podem virar *Trabalho Futuro* se `NormalsStrategy` atingir F1≥0.75 e não houver tempo — decisão consciente, documentada.
+> Normais permanece apenas como baseline de comparação, nunca como estratégia candidata (ADR-12).
 
 ---
 
-### Fase 4 — Ground Truth & Avaliação Experimental (out–dez/2026)
+### Fase 4 — P5: Agrupamento em fachadas — DbscanFacadeGrouper (out/2026)
+**Meta:** `Facade[]` completo com DBSCAN + QuikGraph, populando a seção `facades` do JSON v2.
+**Pré-requisito:** F1 do Stage 1 ≥ 0.75 (stage gate de ADR-12). Calibrar DBSCAN antes disso é desperdício.
+**Critério de sucesso:** facades coerentes por plano dominante em 3+ modelos; WWR calculado por fachada; JSON v2 completo (`summary`, `classifications`, `facades`, `aggregates`, `diagnostics`).
+
+- [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN sobre esfera de Gauss + QuikGraph para conectividade)
+- [ ] Calibração empírica de ε e minPoints em fixtures
+- [ ] Adicionar seção `facades` + WWR ao `JsonReportWriter`
+- [ ] `BcfWriter` (ADR-06) — escopo mínimo: tópicos + viewpoints + GlobalId
+- [ ] Testes unitários do grouper + regressão por snapshot
+
+---
+
+### Fase 5 — P6: Viewer MVP (nov/2026)
+**Meta:** ferramenta mínima de inspeção visual (ADR-07 revisado por ADR-12).
+**Critério de sucesso:** especialista abre IFC+JSON, navega 3D, vê elementos coloridos por fachada, clica e lê GlobalId/IfcType.
+
+**Escopo MVP obrigatório (nov/2026):**
+- [ ] `Components/`: render 3D por elemento colorido por fachada
+- [ ] Filtro exterior/interior, inspeção (GlobalId, IfcType, `IIfcProductResolver`)
+- [ ] Overlay opcional de ground truth CSV
+
+**Stretch goal (condicional a cronograma + F1 aceitável):**
+- [ ] Edição manual de rotulação e export BCF editado — escopo do ADR-07 original, mantido como extensão opcional
+
+---
+
+### Fase 6 — Ground Truth & Avaliação Experimental (out/2026 – jan/2027, paralela)
 **Meta:** validar o método contra rótulos manuais de especialistas.
 **Critério de sucesso:** tabela Precisão/Recall/F1/Kappa por modelo e por tipologia; ≥75% concordância entre especialistas.
 
 - [ ] Selecionar 3–5 modelos IFC de tipologias diferentes (planta retangular, L, curva/irregular)
-- [ ] Protocolo de rotulação (critérios, ferramenta — provavelmente Viewer, resolução de divergências)
+- [ ] Protocolo de rotulação (critérios, ferramenta — provavelmente Viewer MVP, resolução de divergências)
 - [ ] Recrutar 5+ profissionais AEC
 - [ ] Kappa de Cohen para concordância
 - [ ] Tabela de resultados para a dissertação
 
 ---
 
-### Fase 5 — Viewer Completo (paralelo à Fase 4)
-**Meta:** ferramenta de curadoria assistida (ADR-07).
-**Critério de sucesso:** especialista abre IFC+JSON, navega, edita rotulação, exporta BCF que abre em BIMCollab.
-
-**Fase 5A — Render + inspeção (set–out/2026):**
-- [ ] `Components/`: render 3D por elemento colorido por fachada
-- [ ] Filtro exterior/interior, inspeção (GlobalId, IfcType, `IIfcProductResolver`)
-- [ ] Overlay opcional de ground truth CSV
-
-**Fase 5B — Edição + BCF (nov–dez/2026):**
-- [ ] `Editing/`: reclassificação manual de elementos, alteração de `facadeId`
-- [ ] `Export/`: `iabi.BCF` (ou fallback mínimo) — tópicos + viewpoints + comentários
-- [ ] JSON patch serializável (diff entre rotulação automática e curada)
-
----
-
-### Fase 6 — Entrega (jan–fev/2027)
+### Fase 7 — Entrega (jan–fev/2027)
 **Meta:** finalizar documentação, testes de usabilidade e publicação.
 **Critério de sucesso:** defesa da Etapa 4 em 05/02/2027; repositório público e reproduzível.
 
