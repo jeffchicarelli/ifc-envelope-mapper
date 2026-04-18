@@ -1,55 +1,65 @@
 # IfcEnvelopeMapper
 
-Ferramenta CLI em C#/.NET 8 que extrai a envoltória e as fachadas de uma edificação a partir de um arquivo IFC, usando apenas geometria 3D. IFC *properties* (ex.: `Pset_WallCommon.IsExternal`) podem ser consultadas como *hints*, mas nunca como pré-requisito da classificação.
+[![build](https://github.com/jeffchicarelli/ifc-envelope-mapper/actions/workflows/build.yml/badge.svg)](https://github.com/jeffchicarelli/ifc-envelope-mapper/actions/workflows/build.yml)
 
-Componente prático do TCC do MBA em Engenharia de Software (USP/Esalq), com defesa prevista para abril de 2027. O design técnico completo está em [docs/plano.md](docs/plano.md).
+C#/.NET 8 CLI tool that extracts the envelope and facades of a building from an IFC file using only 3D geometry. IFC *properties* (e.g. `Pset_WallCommon.IsExternal`) may be consulted as *hints*, but are never a pre-requisite for classification.
 
-## Pré-requisitos
+Practical component of the MBA in Software Engineering TCC (USP/Esalq), defense scheduled for April 2027. Full technical design is documented in [docs/plano.md](docs/plano.md) (in Portuguese).
 
-- [.NET SDK 8.0](https://dotnet.microsoft.com/download/dotnet/8.0)
-- Windows x64 (xBIM Toolkit usa DLLs nativas desta plataforma)
-- Um arquivo IFC de entrada em `data/models/` (um `duplex.ifc` de exemplo é usado pelo CLI atual)
+## Prerequisites
 
-## Como rodar
+- [.NET SDK 8.0](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- Windows x64 (xBIM Toolkit ships native DLLs for this platform only)
+- An IFC file in `data/models/` (a `duplex.ifc` sample is bundled and used by the current CLI)
 
-### Caminho padrão (qualquer disco local)
+## Build and test
 
 ```bash
-dotnet build
+dotnet build --configuration Release
+dotnet test  --no-build --configuration Release
+```
+
+At the time of writing: 7 projects, 25 unit tests, all green on CI.
+
+## Run the CLI
+
+### Standard path (any local disk)
+
+```bash
 dotnet run --project src/IfcEnvelopeMapper.Cli
 ```
 
-### Se o repositório estiver em Google Drive Streaming
+### When the repo lives on Google Drive Streaming
 
-As DLLs nativas do xBIM quebram quando carregadas a partir de um caminho do Google Drive Streaming. Use o script que copia os binários + modelos para `C:\temp\ifcenvmapper\` e executa a partir de lá:
+xBIM's native DLLs crash when loaded from a Google Drive Streaming path. The bundled script copies binaries and models to `C:\temp\ifcenvmapper\` and runs the CLI from there:
 
 ```powershell
 pwsh scripts/run-from-temp.ps1
 ```
 
-## Estrutura do projeto
+## Project layout
 
 ```
 src/
-  IfcEnvelopeMapper.Core/         Tipos de domínio e interfaces (sem dependência de IFC)
-  IfcEnvelopeMapper.Geometry/     Operações geométricas sobre DMesh3 (plane fitting, etc.)
-  IfcEnvelopeMapper.Algorithms/   Estratégias de detecção de envoltória e agrupamento
-  IfcEnvelopeMapper.Ifc/          Adaptador xBIM: implementa IModelLoader
-  IfcEnvelopeMapper.Cli/          Executável com System.CommandLine
-  IfcEnvelopeMapper.Viewer/       Visualizador web (Blazor + three.js) — em construção
+  IfcEnvelopeMapper.Core/         Domain types and interfaces (no IFC dependency)
+  IfcEnvelopeMapper.Geometry/     Geometric operations on DMesh3 (plane fitting, etc.)
+  IfcEnvelopeMapper.Algorithms/   Envelope detection and facade grouping strategies
+  IfcEnvelopeMapper.Ifc/          xBIM adapter: implements IModelLoader
+  IfcEnvelopeMapper.Cli/          System.CommandLine executable
+  IfcEnvelopeMapper.Viewer/       Web viewer (Blazor + three.js) — scaffolded
 tests/
   IfcEnvelopeMapper.Tests/        xUnit + FluentAssertions
 docs/
-  plano.md                        Design técnico, ADRs e roadmap
+  plano.md                        Technical design, ADRs, and roadmap (PT-BR)
 data/
-  models/                         Arquivos IFC de entrada
+  models/                         Input IFC files
 scripts/
-  run-from-temp.ps1               Workaround para Google Drive Streaming
+  run-from-temp.ps1               Google Drive Streaming workaround
 ```
 
-A regra de dependência é unidirecional: `Core` não conhece `Ifc`, `Algorithms` não conhece `Cli`. Tudo que toca xBIM vive em `IfcEnvelopeMapper.Ifc`.
+Dependency direction is unidirectional: `Core` does not depend on `Ifc`; `Algorithms` does not depend on `Cli`. Anything that touches xBIM lives inside `IfcEnvelopeMapper.Ifc`.
 
-## Documentação
+## Documentation
 
-- [docs/plano.md](docs/plano.md) — plano técnico completo (arquitetura, ADRs, algoritmos, schema do relatório JSON)
-- [2027-TCC/](../2027-TCC) — dissertação, metodologia e referências bibliográficas (repositório separado)
+- [docs/plano.md](docs/plano.md) — full technical plan (architecture, ADRs, algorithms, JSON report schema)
+- [2027-TCC/](../2027-TCC) — dissertation, methodology, and references (separate repo)
