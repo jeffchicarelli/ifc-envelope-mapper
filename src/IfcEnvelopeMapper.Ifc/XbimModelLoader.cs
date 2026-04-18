@@ -25,10 +25,12 @@ public sealed class XbimModelLoader : IModelLoader
         foreach (var element in model.Instances.OfType<IIfcBuildingElement>())
         {
             var mesh = ExtractMesh(element, context);
-            result.Add(new BuildingElement(
-                element.GlobalId,
-                element.GetType().Name,
-                mesh));
+            result.Add(new BuildingElement
+            {
+                GlobalId = element.GlobalId,
+                IfcType = element.GetType().Name,
+                Mesh = mesh
+            });
         }
 
         return result;
