@@ -7,15 +7,15 @@ var ifcPath = FindUpward("data/models/duplex.ifc")
 Console.WriteLine($"Opening: {ifcPath}");
 
 IModelLoader loader = new XbimModelLoader();
-var elements = loader.Load(ifcPath);
+var model = loader.Load(ifcPath);
 
-var first = elements.First(e => e.Mesh.TriangleCount > 0);
+var first = model.Elements.First(e => e.Mesh.TriangleCount > 0);
 Console.WriteLine($"First with geometry: {first.IfcType} {first.GlobalId} " +
                   $"tris={first.Mesh.TriangleCount} " +
                   $"bbox=({first.Mesh.GetBounds().Min}) → ({first.Mesh.GetBounds().Max})");
 
-Console.WriteLine($"Loaded {elements.Count} elements");
-foreach (var element in elements)
+Console.WriteLine($"Loaded {model.Elements.Count} elements");
+foreach (var element in model.Elements)
 {
     Console.WriteLine($"  {element.IfcType}  {element.GlobalId}");
 }

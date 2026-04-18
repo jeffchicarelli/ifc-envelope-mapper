@@ -11,7 +11,7 @@ namespace IfcEnvelopeMapper.Ifc;
 
 public sealed class XbimModelLoader : IModelLoader
 {
-    public IReadOnlyList<BuildingElement> Load(string path)
+    public ModelLoadResult Load(string path)
     {
         using var model = IfcStore.Open(path);
         var context = new Xbim3DModelContext(model);
@@ -33,7 +33,7 @@ public sealed class XbimModelLoader : IModelLoader
             });
         }
 
-        return result;
+        return new ModelLoadResult(result, []);
     }
 
     private static DMesh3 ExtractMesh(IIfcBuildingElement element, Xbim3DModelContext context)
