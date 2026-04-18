@@ -53,9 +53,10 @@ data/ground-truth/*.csv
 # Vendor assets (managed by libman/npm — not committed)
 **/wwwroot/lib/
 
-# Generated outputs
-**/*.json
-**/*.bcf
+# Generated pipeline outputs — restricted to data/results/
+# (fixtures em data/fixtures/ e snapshots em tests/ ficam versionados)
+data/results/**/*.json
+data/results/**/*.bcf
 
 # OS
 .DS_Store

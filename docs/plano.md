@@ -64,66 +64,122 @@ O trabalho propõe **um método computacional**, avaliado rigorosamente em model
 ### Hierarquia conceitual
 
 ```
+ModelLoadResult
+    ├── Elements[]     ← átomos classificáveis (sempre com geometria)
+    └── Groups[]       ← agregadores organizacionais (IfcCurtainWall, IfcStair…)
+
 Envelope (totalidade das faces exteriores com rastreabilidade)
     └── input para →
         Facade[] (região de superfície por plano dominante)
             └── Face[] (superfície atômica exterior — unidade primária)
-                └── BuildingElement (rastreável ao IFC)
+                └── BuildingElement (rastreável ao IFC via GlobalId)
 
 Relação Facade ↔ BuildingElement: MUITOS-PARA-MUITOS
   - Uma Face pertence a exatamente 1 BuildingElement e 1 Facade
   - Um BuildingElement pode ter Faces em 0, 1 ou N Facades
   - Uma Facade agrega Faces de M BuildingElements diferentes
+
+Relação BuildingElement ↔ BuildingElementGroup: MUITOS-PARA-UM (opcional)
+  - Um Element que veio de um agregador IFC tem GroupGlobalId preenchido
+  - Um Group referencia seus Elements via lista
+  - Algoritmos consomem apenas Elements; Groups servem a relatório e Viewer
 ```
 
-> **Envelope não contém Facade[]** — é input para o `IFacadeGrouper`, que produz `Facade[]`.
-> **Facade referencia Envelope** (parent) e contém um subconjunto de `Face[]`.
+> **ModelLoadResult** é o que o loader retorna — separa átomos (o que se classifica) de agregadores (o que se usa para rastreabilidade de IfcCurtainWall/IfcStair).
+> **Envelope** não contém `Facade[]` — é input para o `IFacadeGrouper`, que produz `Facade[]`.
+> **Facade** referencia Envelope (parent) e contém um subconjunto de `Face[]`.
 > **Facade.Elements** retorna os elementos que possuem ≥1 Face nesta região.
 
-### BuildingElement — sealed class
+### BuildingElementContext — record struct (ADR-08)
 
 ```csharp
-/// Elemento IFC com sua geometria triangulada.
-/// Sem IIfcProduct — Core não depende de xBIM.
-/// Sem ObjectType — algoritmos não dependem de metadados IFC.
-public sealed class BuildingElement
-{
-    public string GlobalId { get; }
-    public string IfcType { get; }              // "IfcWall", "IfcWindow"...
-    public DMesh3 Mesh { get; }
-    public AxisAlignedBox3d BoundingBox { get; } // computado no ctor (eager, O(n vértices))
-    public Vector3d Centroid => BoundingBox.Center;
+/// IDs da hierarquia espacial IFC (Project → Site → Building → Storey).
+/// Core só conhece os 3 IDs. Qualquer outro metadado (Pset, Name, Material, Tag,
+/// relações IFC) é obtido via IIfcProductResolver na camada Ifc (ADR-10).
+public readonly record struct BuildingElementContext(
+    string? SiteId = null,
+    string? BuildingId = null,
+    string? StoreyId = null);
+```
 
-    public BuildingElement(string globalId, string ifcType, DMesh3 mesh)
-    {
-        GlobalId = globalId;
-        IfcType = ifcType;
-        Mesh = mesh;
-        BoundingBox = new AxisAlignedBox3d(mesh.GetBounds());
-    }
+### BuildingElement — átomo classificável (ADR-08, ADR-11)
+
+```csharp
+/// Unidade atômica que os algoritmos classificam em fachadas.
+/// SEMPRE tem geometria (invariante do tipo — eliminado o estado "mesh vazio").
+/// Sem IIfcProduct: Core não depende de xBIM.
+public sealed class BuildingElement : IEquatable<BuildingElement>
+{
+    public required string GlobalId { get; init; }
+    public required string IfcType { get; init; }       // "IfcWall", "IfcWindow"…
+    public required DMesh3 Mesh { get; init; }
+    public BuildingElementContext Context { get; init; }
+    public string? GroupGlobalId { get; init; }         // back-ref opcional ao Group (string evita ciclo em JSON)
+
+    public bool Equals(BuildingElement? other)
+        => other is not null && GlobalId == other.GlobalId;
+    public override bool Equals(object? obj) => Equals(obj as BuildingElement);
+    public override int GetHashCode() => GlobalId.GetHashCode();
 }
 ```
 
-**Por que `sealed class` e não `record`?** `DMesh3` não implementa value equality — `record` geraria comparação por referência disfarçada de comparação por valor.
+**Por que anêmico (sem `BoundingBox`/`Centroid` cacheados)?** Simplicidade e imutabilidade por construção. Quem precisa, chama `element.Mesh.GetBounds().Center` no ponto de uso — `geometry4Sharp` já caminha o mesh uma vez e o custo é negligível frente ao DBSCAN/ray casting.
 
-**Por que sem `IIfcProduct`?** Acoplaria Core ao xBIM. O `XbimModelLoader` (em Ifc) extrai os dados necessários e constrói `BuildingElement` com tipos primitivos.
+**Por que `IEquatable<BuildingElement>` por `GlobalId`?** Usar `HashSet<BuildingElement>`, `Distinct()` e `Dictionary<BuildingElement, T>` sem lambdas de key selector. `GlobalId` é identidade natural do IFC.
 
-### Face — superfície atômica exterior
+**Por que `required init` e não construtor?** Construção por *object initializer* deixa os testes legíveis (`new BuildingElement { GlobalId = "…", IfcType = "IfcWall", Mesh = mesh }`) e obriga cada campo a ser fornecido. `readonly record struct` em `Context` permite defaults nulos sem boilerplate.
+
+**Por que `sealed class` e não `record`?** `DMesh3` não implementa value equality — `record` geraria equality sintética que compara `Mesh` por referência. Equality aqui é por identidade IFC (`GlobalId`), então implementamos explicitamente.
+
+### BuildingElementGroup — agregador organizacional (ADR-11)
+
+```csharp
+/// Agregador IFC (IfcCurtainWall, IfcStair, IfcRamp, IfcRoof composto).
+/// Não é classificado — serve a rastreabilidade e relatório.
+/// Pode ter geometria própria (raro: ArchiCAD inclui; Revit geralmente não).
+public sealed class BuildingElementGroup : IEquatable<BuildingElementGroup>
+{
+    public required string GlobalId { get; init; }
+    public required string IfcType { get; init; }
+    public BuildingElementContext Context { get; init; }
+    public DMesh3? OwnMesh { get; init; }                              // raro, opcional
+    public required IReadOnlyList<BuildingElement> Elements { get; init; }
+
+    public bool Equals(BuildingElementGroup? other)
+        => other is not null && GlobalId == other.GlobalId;
+    public override bool Equals(object? obj) => Equals(obj as BuildingElementGroup);
+    public override int GetHashCode() => GlobalId.GetHashCode();
+}
+```
+
+**Por que separar `Element` e `Group`?** Um modelo único com `Mesh` opcional + `Children[]` opcional cria estados inválidos (átomo com children, agregador sem children). O split elimina isso por construção: `Element` sempre tem mesh, `Group` sempre tem `Elements` não-vazia.
+
+### ModelLoadResult
+
+```csharp
+public sealed record ModelLoadResult(
+    IReadOnlyList<BuildingElement> Elements,
+    IReadOnlyList<BuildingElementGroup> Groups);
+```
+
+### Face — superfície atômica exterior (ADR-04)
 
 ```csharp
 /// Conjunto de triângulos de um BuildingElement que pertencem a um mesmo plano.
 /// Inferida geometricamente — não existe no IFC.
-/// Referência direta a BuildingElement para rastreabilidade.
+/// Referência direta a BuildingElement para rastreabilidade forte.
 public sealed class Face
 {
     public BuildingElement Element { get; }
-    public IReadOnlyList<int> TriangleIds { get; }  // índices na DMesh3 do elemento
-    public Plane3d FittedPlane { get; }
-    public Vector3d Normal => FittedPlane.Normal;
+    public IReadOnlyList<int> TriangleIds { get; }   // índices na DMesh3 do elemento
+    public Plane3d FittedPlane { get; }              // plano ajustado por PCA
+    public Vector3d Normal => FittedPlane.Normal;    // derivada
     public double Area { get; }
     public Vector3d Centroid { get; }
 }
 ```
+
+**Rastreabilidade sem duplicação:** `Face` não armazena `DMesh3`. Os triângulos são lidos por `Element.Mesh.GetTriangle(id)` para cada `id in TriangleIds`. `face.Element.GlobalId` já dá o link ao IFC sem lookup externo.
 
 ### Envelope — casca + faces exteriores
 
@@ -135,7 +191,7 @@ public sealed class Envelope
     public DMesh3 Shell { get; }                    // casca geométrica (malha fundida)
     public IReadOnlyList<Face> Faces { get; }       // faces exteriores com rastreabilidade
     public IEnumerable<BuildingElement> Elements
-        => Faces.Select(f => f.Element).DistinctBy(e => e.GlobalId);
+        => Faces.Select(f => f.Element).Distinct(); // IEquatable<BuildingElement> por GlobalId
 }
 ```
 
@@ -161,7 +217,7 @@ public sealed class Facade
     /// Elementos IFC desta fachada (possuem ≥1 Face nesta região).
     /// Um mesmo elemento pode aparecer em outra Facade se tiver Faces com normal diferente.
     public IEnumerable<BuildingElement> Elements
-        => Faces.Select(f => f.Element).DistinctBy(e => e.GlobalId);
+        => Faces.Select(f => f.Element).Distinct();
 }
 ```
 
@@ -171,7 +227,31 @@ public sealed class Facade
 // Port de carregamento — implementado em Ifc, definido em Core (DIP)
 public interface IModelLoader
 {
-    IReadOnlyList<BuildingElement> Load(string path);
+    ModelLoadResult Load(string path);
+}
+
+// Filtro de tipos IFC — configurável (ADR-05)
+public interface IElementFilter
+{
+    bool Include(string ifcType);
+}
+
+public sealed class DefaultElementFilter : IElementFilter
+{
+    private static readonly HashSet<string> DefaultIncludes = new(StringComparer.Ordinal)
+    {
+        "IfcWall", "IfcWallStandardCase", "IfcWindow", "IfcDoor",
+        "IfcCurtainWall", "IfcCurtainWallPanel",
+        "IfcSlab", "IfcRoof", "IfcColumn", "IfcBeam",
+        "IfcRailing", "IfcStairFlight", "IfcRampFlight",
+        "IfcMember", "IfcPlate", "IfcCovering"
+    };
+
+    private readonly IReadOnlySet<string> _includes;
+    public DefaultElementFilter(IReadOnlySet<string>? includes = null)
+        => _includes = includes ?? DefaultIncludes;
+
+    public bool Include(string ifcType) => _includes.Contains(ifcType);
 }
 
 // Stage 1 — detecta elementos exteriores, produz Envelope
@@ -186,6 +266,39 @@ public interface IFacadeGrouper
     IReadOnlyList<Facade> Group(Envelope envelope);
 }
 ```
+
+### Acesso cru ao IIfcProduct (ADR-10)
+
+Mora na camada Ifc. Viewer, Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
+
+```csharp
+// Ifc/IIfcProductResolver.cs
+public interface IIfcProductResolver
+{
+    IIfcProduct? Resolve(string globalId);
+}
+
+// Ifc/XbimIfcProductResolver.cs
+public sealed class XbimIfcProductResolver : IIfcProductResolver, IDisposable
+{
+    private readonly IfcStore _store;
+    private readonly Dictionary<string, IIfcProduct> _index;
+
+    public XbimIfcProductResolver(IfcStore store)
+    {
+        _store = store;
+        _index = store.Instances.OfType<IIfcProduct>()
+                                .ToDictionary(p => p.GlobalId, StringComparer.Ordinal);
+    }
+
+    public IIfcProduct? Resolve(string globalId) =>
+        _index.TryGetValue(globalId, out var p) ? p : null;
+
+    public void Dispose() => _store.Dispose();
+}
+```
+
+Index em `Dictionary` evita busca linear em modelos com milhares de elementos. Lifetime: o resolver precisa do `IfcStore` aberto; gerenciar via `using` ou escopo de DI.
 
 ### Reporting
 
@@ -210,36 +323,45 @@ public sealed class ElementClassification
 
 ---
 
-## Estrutura do Projeto (5 projetos)
+## Estrutura do Projeto (6 projetos + testes)
 
 ```
 IfcEnvelopeMapper/
 ├── docs/
 │   └── plano.md                          ← este arquivo
+├── scripts/
+│   └── run-from-temp.ps1                 ← workaround Google Drive Streaming (xBIM native DLLs)
 │
 ├── src/
 │   ├── IfcEnvelopeMapper.Core/           ← domínio puro + interfaces (ports)
 │   │   ├── Building/
-│   │   │   └── BuildingElement.cs
+│   │   │   ├── BuildingElement.cs        ← átomo classificável (ADR-11)
+│   │   │   ├── BuildingElementGroup.cs   ← agregador organizacional (ADR-11)
+│   │   │   └── BuildingElementContext.cs ← record struct: Site/Building/Storey IDs (ADR-08)
 │   │   ├── Envelope/
 │   │   │   ├── Envelope.cs
 │   │   │   ├── Facade.cs
-│   │   │   └── Face.cs
+│   │   │   └── Face.cs                   ← Element + TriangleIds + FittedPlane (ADR-04)
 │   │   ├── Pipeline/
 │   │   │   ├── IModelLoader.cs
+│   │   │   ├── ModelLoadResult.cs        ← record (Elements, Groups) (ADR-11)
+│   │   │   ├── IElementFilter.cs         ← filtro de tipos IFC (ADR-05)
+│   │   │   ├── DefaultElementFilter.cs
 │   │   │   ├── IDetectionStrategy.cs
 │   │   │   └── IFacadeGrouper.cs
 │   │   └── Reporting/
 │   │       ├── DetectionResult.cs
 │   │       └── ElementClassification.cs
-│   │   [deps: geometry3Sharp]
+│   │   [deps: geometry4Sharp]
 │   │
 │   ├── IfcEnvelopeMapper.Geometry/       ← operações geométricas stateless
 │   │   └── GeometricOps.cs
-│   │   [deps: Core, geometry3Sharp, NetTopologySuite]
+│   │   [deps: Core, geometry4Sharp, NetTopologySuite]
 │   │
 │   ├── IfcEnvelopeMapper.Ifc/            ← integração xBIM
-│   │   └── XbimModelLoader.cs            ← implementa IModelLoader
+│   │   ├── XbimModelLoader.cs            ← implementa IModelLoader
+│   │   ├── IIfcProductResolver.cs        ← acesso cru ao IIfcProduct (ADR-10)
+│   │   └── XbimIfcProductResolver.cs
 │   │   [deps: Core, Xbim.Essentials, Xbim.Geometry]
 │   │
 │   ├── IfcEnvelopeMapper.Algorithms/     ← estratégias de detecção + agrupamento
@@ -251,45 +373,63 @@ IfcEnvelopeMapper/
 │   │       └── DbscanFacadeGrouper.cs    ← implementa IFacadeGrouper
 │   │   [deps: Core, Geometry, DBSCAN, QuikGraph]
 │   │
-│   └── IfcEnvelopeMapper.Cli/            ← entry point, output writers
-│       ├── Commands/
-│       │   └── DetectCommand.cs          ← orquestra o pipeline
-│       ├── Output/
-│       │   ├── JsonReportWriter.cs
-│       │   └── BcfWriter.cs
-│       └── Program.cs
-│       [deps: Core, Ifc, Algorithms, System.CommandLine]
+│   ├── IfcEnvelopeMapper.Cli/            ← entry point, output writers
+│   │   ├── Commands/
+│   │   │   └── DetectCommand.cs          ← orquestra o pipeline
+│   │   ├── Output/
+│   │   │   ├── JsonReportWriter.cs
+│   │   │   └── BcfWriter.cs              ← mantido em paralelo ao Viewer (ADR-06)
+│   │   └── Program.cs
+│   │   [deps: Core, Ifc, Algorithms, System.CommandLine, Microsoft.Extensions.Logging]
+│   │
+│   └── IfcEnvelopeMapper.Viewer/         ← visualizador web Blazor + three.js (ADR-07)
+│       ├── Components/                   ← render 3D, inspeção por elemento
+│       ├── Editing/                      ← edição manual de rotulação (isolada do Core)
+│       └── Export/                       ← BCF export (via iabi.BCF ou equivalente)
+│       [deps: Core, Ifc, Algorithms, iabi.BCF]
 │
 ├── tests/
-│   └── IfcEnvelopeMapper.Tests/          ← todos os testes (xUnit)
+│   └── IfcEnvelopeMapper.Tests/          ← xUnit + FluentAssertions
+│       ├── Building/                     ← BuildingElement, Group, Context
+│       ├── Geometry/                     ← plane fitting, clustering
+│       ├── Ifc/                          ← loader contra fixtures IFC
+│       ├── Algorithms/                   ← strategies + grouper
+│       └── Regression/                   ← snapshot tests (expected-report.json)
 │
 ├── data/
 │   ├── models/                           ← arquivos IFC para testes
 │   ├── results/                          ← outputs JSON gerados pela CLI
 │   └── ground-truth/                     ← rotulação manual por especialistas (CSV)
 │
-└── IfcEnvelopeMapper.sln
+├── IfcEnvelopeMapper.slnx
+└── README.md
 ```
 
-### Por que 5 projetos?
+### Por que 6 projetos?
 
-`Core` concentra o domínio e as interfaces sem depender de infraestrutura (exceto `geometry3Sharp` para tipos geométricos). `Geometry` isola operações geométricas puras, reutilizáveis entre strategies. `Ifc` encapsula toda a complexidade do xBIM e pode ser substituído por outra biblioteca de leitura IFC sem tocar o domínio. `Algorithms` contém as strategies e o agrupamento — a parte mais experimental do projeto. `Cli` é o único ponto de entrada e o único lugar que conhece writers de output.
+`Core` concentra o domínio e as interfaces sem depender de infraestrutura (exceto `geometry4Sharp` para tipos geométricos). `Geometry` isola operações geométricas puras, reutilizáveis entre strategies. `Ifc` encapsula toda a complexidade do xBIM — tanto o carregamento quanto o acesso ad-hoc a metadados IFC via `IIfcProductResolver` (ADR-10) —, e pode ser substituído por outra biblioteca de leitura IFC sem tocar o domínio. `Algorithms` contém as strategies e o agrupamento — a parte mais experimental do projeto. `Cli` é um dos dois pontos de entrada e o lugar dos writers de relatório (JSON + BCF). `Viewer` é o segundo ponto de entrada: visualizador web que consome o mesmo JSON produzido pela CLI e permite render, inspeção, edição manual de rotulação e export BCF complementar (ADR-07).
 
 ### Dependency Inversion
 
 **`IModelLoader` fica em Core, não em Ifc.** A interface pertence ao consumidor, não ao provedor. `XbimModelLoader` implementa `IModelLoader` e fica em Ifc; Core não sabe que xBIM existe.
 
-**`IFacadeGrouper` fica em Core, não em Algorithms.** `DbscanFacadeGrouper` (e futuros groupers) implementam a interface e ficam em Algorithms.
+**`IFacadeGrouper` e `IDetectionStrategy` ficam em Core, não em Algorithms.** `DbscanFacadeGrouper` e as strategies implementam as interfaces e ficam em Algorithms.
+
+**`IElementFilter` fica em Core** (ADR-05). `DefaultElementFilter` com lista padrão fica em Core; `XbimModelLoader` recebe a instância por construtor.
+
+**`IIfcProductResolver` fica em Ifc, não em Core** (ADR-10). A interface existe para permitir que Viewer, Cli ou testes acessem o `IIfcProduct` cru sem acoplar Core ao xBIM — quem importa o resolver já depende de xBIM por definição.
 
 **Sem `IReportWriter` em Core.** A CLI produz um `DetectionResult` e chama writers concretos. Nenhuma abstração é necessária neste ponto.
 
 ### Diagrama de dependências (sem circular)
 
 ```
-Core ← Geometry ← Algorithms ← Cli
-Core ← Ifc               ↗
-Core ←────────────────────
+Core ← Geometry ← Algorithms ← Cli, Viewer
+Core ← Ifc ──────────────────↗ ↗
+Core ←──────────────────────────
 ```
+
+`Viewer` depende de `Core + Ifc + Algorithms` mas não é dependência de ninguém. `Tests` depende de todos os projetos de `src/`.
 
 ---
 
@@ -351,10 +491,10 @@ Facade[]
 
 ```csharp
 // DetectCommand.cs — composition root
-var elements = loader.Load(modelPath);                     // IModelLoader
-var result   = strategy.Detect(elements);                  // IDetectionStrategy → DetectionResult
+var model    = loader.Load(modelPath);                     // IModelLoader → ModelLoadResult
+var result   = strategy.Detect(model.Elements);            // IDetectionStrategy → DetectionResult
 var facades  = grouper.Group(result.Envelope);             // IFacadeGrouper → Facade[]
-var report   = ReportBuilder.Build(result, facades, runMeta);
+var report   = ReportBuilder.Build(result, facades, model.Groups, runMeta);
 writer.WriteJson(report, outputPath);
 ```
 
@@ -377,33 +517,82 @@ writer.WriteJson(report, outputPath);
 ### Estágio 0 — Carregamento e Triangulação
 
 ```
-FUNÇÃO Load(ifcPath) → BuildingElement[]
+FUNÇÃO Load(ifcPath) → ModelLoadResult
     // Ref: xBIM Toolkit — Xbim3DModelContext (Lockley et al.)
-    model ← XbimModel.Open(ifcPath)
-    context ← Xbim3DModelContext(model)
-    context.CreateContext()
+    // ADR-05: filtro injetado por construtor (IElementFilter)
+    // ADR-09: agregação IFC de building elements tem 2 níveis fixos
+    // ADR-11: resultado separa átomos (Elements) de agregadores (Groups)
 
-    elementos ← []
-    PARA CADA product EM model.Instances.OfType<IIfcProduct>():
-        SE product NÃO É tipo construtivo relevante:
-            CONTINUE    // Filtra: IfcWall, IfcWindow, IfcDoor, IfcCurtainWall,
-                        //         IfcSlab, IfcRoof, IfcColumn, IfcBeam, IfcRailing
+    model ← IfcStore.Open(ifcPath)
+    context ← Xbim3DModelContext(model); context.MaxThreads = 1; context.CreateContext()
+    // MaxThreads=1 evita AccessViolationException em OCCT (thread-unsafe teardown)
 
-        shapeInstances ← context.ShapeInstancesOf(product)
-        mesh ← TriangularMesh vazia
-        PARA CADA shape EM shapeInstances:
-            geometria ← context.ShapeGeometry(shape)
-            mesh.Append(geometria.Triangles, shape.Transformation)
+    elementos ← []    // átomos classificáveis
+    grupos   ← []     // agregadores organizacionais
 
-        SE mesh tem triângulos:
-            elementos.Add(BuildingElement(
-                globalId: product.GlobalId,
-                ifcType: product.GetType().Name,
-                mesh: mesh
-            ))
+    PARA CADA ifcElem EM model.Instances.OfType<IIfcBuildingElement>():
+        SE NOT filter.Include(ifcElem.GetType().Name): CONTINUE
 
-    RETORNAR elementos
+        ctx ← ExtrairContext(ifcElem)    // (SiteId, BuildingId, StoreyId)
+        children ← ifcElem.IsDecomposedBy
+                         .SelectMany(r → r.RelatedObjects.OfType<IIfcBuildingElement>())
+                         .Where(c → filter.Include(c.GetType().Name))
+                         .ToList()
+
+        SE children.Count == 0:
+            // Átomo standalone — entra em Elements apenas se tem geometria.
+            mesh ← ExtrairMesh(ifcElem, context)
+            SE mesh.TriangleCount > 0:
+                elementos.Add(new BuildingElement {
+                    GlobalId = ifcElem.GlobalId,
+                    IfcType  = ifcElem.GetType().Name,
+                    Mesh     = mesh,
+                    Context  = ctx
+                })
+
+        SENÃO:
+            // Agregador (IfcCurtainWall, IfcStair, …).
+            Debug.Assert(children.All(c → !c.IsDecomposedBy.Any()),
+                "ADR-09: agregação de 3+ níveis não esperada")
+
+            groupId ← ifcElem.GlobalId
+            groupElements ← []
+
+            PARA CADA child EM children:
+                meshChild ← ExtrairMesh(child, context)
+                SE meshChild.TriangleCount > 0:
+                    elem ← new BuildingElement {
+                        GlobalId       = child.GlobalId,
+                        IfcType        = child.GetType().Name,
+                        Mesh           = meshChild,
+                        Context        = ExtrairContext(child),
+                        GroupGlobalId  = groupId
+                    }
+                    elementos.Add(elem)
+                    groupElements.Add(elem)
+                SENÃO:
+                    // Child sem geometria (ex: IfcCurtainWallPanel vazio) é descartado.
+                    logger.Warning("Element {GlobalId} ({Type}) skipped: empty mesh",
+                                   child.GlobalId, child.GetType().Name)
+
+            // Agregador pode ou não ter geometria própria.
+            ownMesh ← ExtrairMesh(ifcElem, context)
+            grupos.Add(new BuildingElementGroup {
+                GlobalId = groupId,
+                IfcType  = ifcElem.GetType().Name,
+                Context  = ctx,
+                OwnMesh  = ownMesh.TriangleCount > 0 ? ownMesh : null,
+                Elements = groupElements
+            })
+
+    RETORNAR new ModelLoadResult(elementos, grupos)
 ```
+
+**Exemplo concreto.** Uma cortina de vidro em canto de prédio com 4 painéis voltados para norte e 3 para leste produz:
+- `Elements`: 7 `BuildingElement`s (um por painel) + N mullions, todos com `GroupGlobalId = "curtainWall-1"`
+- `Groups`: 1 `BuildingElementGroup` `"curtainWall-1"` (IfcCurtainWall, `OwnMesh = null`, `Elements` referenciando os 7+N)
+
+O `DbscanFacadeGrouper` consome só `model.Elements` e classifica 4 painéis em Facade-Norte, 3 em Facade-Leste. O relatório JSON itera `model.Groups` para produzir `"aggregates": [{"globalId": "curtainWall-1", "participatingFacades": ["facade-N", "facade-E"]}]`.
 
 ### Estágio 1 — Detecção de Exterior (IDetectionStrategy)
 
@@ -466,7 +655,7 @@ FUNÇÃO NormalsDetect(elementos, anguloTolerancia) → DetectionResult
 ```
 FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
     // Ref: Ying et al. (2022) — two-stage recursive ray tracing
-    // Ref: geometry3Sharp — DMeshAABBTree3 (BVH para ray-triangle intersection)
+    // Ref: geometry4Sharp — DMeshAABBTree3 (BVH para ray-triangle intersection)
 
     // Construir BVH global com todos os triângulos do modelo
     meshGlobal ← MergeMeshes(elementos.Select(e → e.Mesh))
@@ -719,6 +908,112 @@ A ferramenta sempre opera com rastreabilidade completa (equivalente ao LoD 3.2 d
 
 ---
 
+## Decisões Arquiteturais (ADRs)
+
+Formato curto: decisão, motivo, consequência. Decisões históricas revogadas ficam registradas para rastreabilidade na dissertação.
+
+### ADR-01 — [REVOGADA por ADR-09]
+
+Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profunda arbitrária. Análise pós-decisão mostrou que IFC real mantém agregações em 2 níveis — recursão é *overengineering*. Substituída por ADR-09 + ADR-11.
+
+### ADR-02 — `IfcRelFillsElement` é ignorado no loader
+
+**Decisão.** Janela, porta e parede são carregadas como `BuildingElement`s independentes. A relação "janela preenche void na parede" não é preservada via metadado IFC; é descoberta pelos algoritmos via geometria (bounding-box overlap, proximidade).
+
+**Motivo.** Fiel ao princípio "geometria primeiro, IFC properties são hints". Mantém loader simples; não cria dependência em metadado que pode faltar em modelos de baixa qualidade.
+
+**Consequência.** Algoritmos de classificação não recebem dica de "esta janela está em parede externa" — precisam inferir. Aceitável: é justamente o que o TCC se propõe a demonstrar.
+
+### ADR-03 — Semântica de agregadores é fixa, sem flag CLI
+
+**Decisão.** Uma só semântica de tratamento de agregadores (ADR-11) para todo o projeto. Não existe `--aggregate-mode flatten|tree|hybrid`.
+
+**Motivo.** Menos superfície de bugs; testes mais previsíveis; documentação da dissertação mais simples; usuário final da ferramenta não precisa conhecer este detalhe interno.
+
+**Consequência.** Se surgir um caso de modelo real que exige outro tratamento, a decisão precisa voltar ao plano antes de virar código.
+
+### ADR-04 — `Face` = `Element` + `TriangleIds` + `Plane3d`
+
+**Decisão.** `Face` referencia `BuildingElement` diretamente, carrega índices de triângulos no mesh do elemento (não duplica geometria) e um `Plane3d` ajustado por PCA (substitui `Normal + PointOnPlane` separados).
+
+**Motivo.** Rastreabilidade forte (`face.Element.GlobalId` funciona direto) sem lookup externo; sem duplicação de geometria; `Plane3d` centraliza `Normal`, `PointOnPlane`, `Distance(p)`, `Project(p)`.
+
+**Consequência.** Acoplamento `Face → BuildingElement` é aceitável — unidirecional, ambos em Core. Em serialização JSON, usar `[JsonIgnore]` em `Face.Element` e expor só `Element.GlobalId` evita ciclos.
+
+### ADR-05 — `IElementFilter` em Core + default inclusivo + override CLI
+
+**Decisão.** Filtro de tipos IFC é interface em Core. `DefaultElementFilter` traz uma lista hardcoded razoável. `XbimModelLoader` recebe `IElementFilter` por construtor. CLI aceita `--include-types X,Y,Z` e `--exclude-types A,B` para montar filtro programaticamente. Config opcional em `data/elementFilter.json` para persistência por modelo.
+
+**Motivo.** Feedback explícito: *"o filtro deve ser facilmente alterado no futuro, até pelo usuário se necessário"*. Interface permite DI em testes, CLI permite override sem recompilar.
+
+**Consequência.** `DefaultElementFilter` fica *opinativo* — inclui `IfcRailing`, exclui `IfcFooting`, etc. Decisões do default são documentadas e questionáveis em PR.
+
+### ADR-06 — `BcfWriter` + Viewer em paralelo
+
+**Decisão.** `BcfWriter` continua em `Cli/Output/` produzindo BCF a partir do JSON. O Viewer também produz BCF (após edição manual de rotulação). Ambos consomem o mesmo JSON.
+
+**Motivo.** Pipeline + JSON é o caminho automatizado (reproduzível em CI). Viewer é o caminho assistido (curadoria humana). São usos distintos; um não substitui o outro.
+
+**Consequência.** Há duas implementações de BCF no projeto. A do Viewer pode divergir (anotações manuais, viewpoints editados) da do CLI (viewpoints gerados). Compartilhar código via biblioteca BCF comum (`iabi.BCF` ou equivalente) quando possível.
+
+### ADR-07 — Viewer Completo: render + edição + export BCF
+
+**Decisão.** Viewer implementa render 3D dos meshes coloridos por fachada, inspeção por elemento, filtro exterior/interior, **edição manual de rotulação** e **export BCF**. Recorte "Completo" (vs. "MVP só-visualização" que foi rejeitado).
+
+**Motivo.** Evita dependência de BIMCollab/BIMvision. Ferramenta vira *curadoria assistida* — contribuição mais forte para a banca. BCF editado cria *loop* natural com outras ferramentas AEC. Responde ao critério #4 do TCC (≥4 ferramentas BIM): o próprio Viewer é uma delas.
+
+**Consequência.** Risco alto de cronograma — ver seção Viewer (§ Viewer) para stage gates, spike técnico e plano de contingência se F1<0.60 em set/2026.
+
+### ADR-08 — `BuildingElement` anêmico + `IEquatable` + `BuildingElementContext`
+
+**Decisão.** `BuildingElement` tem apenas `GlobalId`, `IfcType`, `Mesh`, `Context` (record struct com `SiteId`/`BuildingId`/`StoreyId`) e `GroupGlobalId` opcional. Implementa `IEquatable<BuildingElement>` por `GlobalId`. Sem `BoundingBox` cacheada, sem `Centroid` derivado, sem propriedades IFC avançadas.
+
+**Motivo.** Core desacoplado de xBIM. Domínio enxuto e testável. `IEquatable` habilita `HashSet`/`Distinct`/`Dictionary` sem lambdas. `required init` torna testes legíveis.
+
+**Consequência.** Callers que precisam de bounding box chamam `element.Mesh.GetBounds()` no ponto de uso. Qualquer metadado IFC além dos 3 IDs espaciais é buscado via `IIfcProductResolver` (ADR-10) na camada Ifc.
+
+### ADR-09 — Agregação IFC de building elements tem 2 níveis fixos
+
+**Decisão.** IFC real mantém `IfcRelAggregates` para building elements em exatamente 2 níveis (agregador → átomos). `Debug.Assert` no loader captura violação (child com `IsDecomposedBy` não-vazio); log warning em Release.
+
+**Motivo.** Agregadores comuns (`IfcCurtainWall`, `IfcStair`, `IfcRamp`, `IfcRoof`) têm filhos construtivos diretos; ninguém aninha `IfcStair` dentro de `IfcStair`. Premissa informa o split do ADR-11 e evita recursão desnecessária.
+
+**Consequência.** Loader simples, sem `LeavesDeep`. Se um modelo real violar a premissa, o assert falha em Debug e produz log em Release — trata-se excepcionalmente caso aconteça.
+
+### ADR-10 — `IIfcProductResolver` na camada Ifc
+
+**Decisão.** Interface em `IfcEnvelopeMapper.Ifc` (não em Core). `XbimIfcProductResolver` indexa `IfcStore.Instances.OfType<IIfcProduct>()` por `GlobalId` em `Dictionary`. Viewer, Cli, testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext`.
+
+**Motivo.** Core permanece sem referência a xBIM. Resolver explicita que o consumidor está acoplando ao schema IFC. Index evita O(n) por lookup.
+
+**Consequência.** Propriedades IFC são *hints* — algoritmos Core não dependem do resolver. Uso típico: Viewer mostra `Pset_WallCommon` ao clicar em elemento; BCF export lê material/tag; testes de integração acessam metadados específicos.
+
+### ADR-11 — Split do modelo: `BuildingElement` (átomo) + `BuildingElementGroup` (agregador)
+
+**Decisão.** Loader retorna `ModelLoadResult(Elements, Groups)`. `BuildingElement` sempre tem geometria. `BuildingElementGroup` agrupa Elements de um agregador IFC (`IfcCurtainWall`, `IfcStair` etc.); tem `OwnMesh` opcional.
+
+**Motivo.** Modelo único com `Mesh` opcional e `Children` opcional criava estados inválidos (átomo com children, agregador sem children). O split elimina isso por construção. Algoritmos consomem só `model.Elements` — comportamento trivial, sem `LeavesDeep`. `Groups` servem à rastreabilidade no relatório JSON e ao Viewer.
+
+**Consequência.** `BuildingElement.GroupGlobalId` é back-ref opcional por `string` (evita ciclos em serialização). Filho sem geometria (ex: `IfcCurtainWallPanel` vazio) é descartado pelo loader — não vira Element, não entra em `Group.Elements`.
+
+---
+
+## Determinismo do Método
+
+Requisito para responder à banca *"o método é determinístico?"* e para viabilizar testes de regressão por snapshot (§ Testes).
+
+**Aleatoriedade controlada.** DBSCAN e ordenações default podem produzir saídas não-determinísticas. Garantias:
+
+1. **Semente fixa** para qualquer uso de `Random`: `new Random(seed: 42)`. Seed é constante do projeto, documentada, nunca derivada de tempo/hostname.
+2. **Ordenação estável antes de iterar** em coleções cuja ordem afeta o resultado: `.OrderBy(e => e.GlobalId, StringComparer.Ordinal)`. Vale especialmente para o input do DBSCAN (primeira face vira primeiro cluster).
+3. **Sem paralelismo não controlado.** `Xbim3DModelContext.MaxThreads = 1` já está fixado (workaround OCCT); demais pipelines rodam sequencialmente. Se for introduzir PLINQ/`Parallel.For`, só com ordenação final explícita.
+
+**Teste de determinismo.** Em `tests/IfcEnvelopeMapper.Tests/Regression/`: rodar o pipeline no mesmo fixture 3× e comparar outputs byte-a-byte (após serialização JSON com chaves ordenadas). Falha se algum par diverge.
+
+**Regras para re-geração de snapshot.** Arquivos `expected-report.json` só são regerados em PR com (a) justificativa no commit message, (b) diff revisado por humano, (c) bump de versão do schema se a mudança for estrutural.
+
+---
+
 ## Filtragem de Relatório e Prova de Aplicabilidade
 
 O modelo `Envelope` + `Facade[]` suporta filtragem para diferentes cenários de uso sem nenhuma arquitetura adicional:
@@ -792,11 +1087,94 @@ foreach (var facade in facades)
         "wwr": 0.239
       }
     }
-  ]
+  ],
+  "aggregates": [
+    {
+      "globalId": "3DqR$tPmX7Zf8NOew3FLaa",
+      "ifcType": "IfcCurtainWall",
+      "elementCount": 11,
+      "participatingFacades": ["facade-01", "facade-02"]
+    }
+  ],
+  "diagnostics": {
+    "elementsSkipped": 12,
+    "reasons": [
+      { "globalId": "1A2B…", "ifcType": "IfcCurtainWallPanel", "reason": "empty mesh" },
+      { "globalId": "3C4D…", "ifcType": "IfcWall", "reason": "n-gon face, triangulated via fan" }
+    ]
+  }
 }
 ```
 
 Quando `--ground-truth` é fornecido, `precision`, `recall` e `f1` são preenchidos automaticamente.
+
+**Bloco `aggregates`.** Produzido a partir de `ModelLoadResult.Groups` (ADR-11). Lista cada `BuildingElementGroup` com o conjunto de fachadas em que seus Elements participaram — útil para relatórios agrupados por cortina de vidro, escada, etc.
+
+**Bloco `diagnostics`.** Coleta warnings do `XbimModelLoader` e dos Stages 1/2: elementos descartados por mesh vazio, triangulações convertidas por fan-fallback, faces *noise* do DBSCAN. Alimentado por `ILogger<T>` com sink em memória. Ver seção Determinismo e estratégia de testes.
+
+---
+
+## Viewer — Curadoria Assistida (ADR-07)
+
+Segundo ponto de entrada do projeto, ao lado da CLI. Stack: **ASP.NET Core Blazor Server + three.js** (via JS interop). Consome o mesmo `report.json` da CLI + o IFC original (para render da geometria).
+
+### Responsabilidades
+
+| Componente | Responsabilidade |
+|---|---|
+| `Components/` | Render 3D do mesh por `BuildingElement`, colorido por `facadeId`. Camera controls, filtro exterior/interior, inspeção por elemento (GlobalId, IfcType, propriedades IFC via `IIfcProductResolver` — ADR-10). |
+| `Editing/` | Camada de edição isolada. Usuário reclassifica elemento / altera `facadeId`. Estado mutável *só aqui*; Core e Algorithms permanecem imutáveis. Diff serializável em JSON patch. |
+| `Export/` | Geração de arquivo `.bcfzip` a partir das rotulações curadas. Usa `iabi.BCF` (NuGet) ou, se indisponível, BCF mínimo (tópicos + viewpoints + comentários). |
+
+### Integração com o pipeline
+
+```
+[CLI]        detect → report.json
+[Viewer]     carrega IFC + report.json
+             → render colorido por fachada
+             → usuário edita rotulação (opcional)
+             → exporta BCF a partir do estado editado
+```
+
+Viewer **nunca re-executa o pipeline**. Isso preserva a relação clara *CLI = algoritmo automatizado*, *Viewer = revisão humana*. Re-execução sobre regiões editadas é *Trabalho Futuro* (§ Trabalhos Futuros).
+
+### Stage gates e contingência
+
+Viewer Completo tem risco alto de cronograma. Para não comprometer o pipeline:
+
+1. **Spike técnico — 1 semana, mai/2026.** Carregar 1 mesh, renderizar com three.js via Blazor interop, clicar num elemento e ler o GlobalId no servidor. **Decisão go/no-go** ao fim. Se *no-go*: Viewer vira MVP estático (render + cores, sem edição, sem BCF) e BCF fica só no CLI.
+
+2. **Stage gate bloqueante — Viewer não começa até pipeline produzir JSON válido** em ≥1 fixture. Atualmente: pipeline em Fase 0 (loader só). Viewer fica congelado até Fase 1 completa (Stage 1 + Stage 2 + `JsonReportWriter`).
+
+3. **Stage gate de qualidade — set/2026.** Se F1 em fixtures estiver <0.60, Viewer é reduzido a MVP (render + cores, sem edição/BCF). Decisão documentada em ADR e commitada ao `docs/plano.md`.
+
+### Cronograma
+
+| Período | Entrega |
+|---|---|
+| mai/2026 (1 sem) | Spike técnico Blazor + three.js + mesh render. Go/no-go. |
+| jun–ago/2026 | **Foco absoluto em pipeline + JSON.** Viewer congelado. |
+| set–out/2026 | Viewer Fase 1 — render colorido + inspeção + filtros. Stage gate qualidade (F1) ao fim de set. |
+| nov–dez/2026 | Viewer Fase 2 — edição manual + export BCF. |
+| jan/2027 | Testes de usabilidade com especialistas AEC + fixes. |
+| fev/2027 | Etapa 4 do TCC (Entrega). |
+
+### Riscos e mitigações
+
+| Risco | Mitigação |
+|---|---|
+| Viewer compete com pipeline pelo tempo. | Stage gate bloqueante — só inicia após pipeline produzir JSON. |
+| Edição mutável cria tensão com imutabilidade do Core. | `Editing/` em camada separada. Core/Algorithms recebem apenas `IReadOnlyList<…>`. |
+| Export BCF 2.1/3.0 não trivial. | `iabi.BCF` NuGet. Fallback: BCF mínimo (tópicos + viewpoints básicos). |
+| Blazor ↔ three.js interop tem curva. | Spike de 1 semana antes de commitment. Se falhar, pivota para Razor Components + canvas simples ou congela Viewer em MVP. |
+| Edição sem undo/redo frustra usuário. | Command pattern básico ou limitação explícita: sessão = 1 arquivo, sem histórico. |
+
+### Trabalhos Futuros (fora do escopo Completo)
+
+- Ingestão de BCF externo para re-calibrar algoritmo (loop bidirecional).
+- Re-execução do pipeline sobre regiões editadas manualmente.
+- Histórico / versionamento de rotulações.
+- Multi-usuário e colaboração simultânea.
 
 ---
 
@@ -854,79 +1232,133 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ## Fases de Desenvolvimento
 
-### Fase 0 — Spike: validar que o pipeline básico funciona
-**Meta:** parsear um arquivo IFC real com xBIM e extrair geometria de um elemento.
-**Critério de sucesso:** logar no console os triângulos e normais de pelo menos um `IfcWall` do `duplex.ifc`.
+### Fase 0 — ✅ Spike: carregamento e triangulação (concluída)
+**Meta:** parsear um arquivo IFC real com xBIM e extrair geometria.
+**Critério de sucesso:** ✅ carregar `duplex.ifc` (157 elementos) e produzir `BuildingElement` com `DMesh3` não-vazia.
 
-- [ ] Criar solução `.sln` com os 5 projetos e estrutura de pastas
-- [ ] Adicionar pacotes NuGet (ver tabela de bibliotecas)
-- [ ] Escrever `Program.cs` mínimo: abrir IFC, iterar elementos, logar tipos
-- [ ] Implementar `XbimModelLoader.Load()` — extrair triangulated mesh via `Xbim3DModelContext`
-- [ ] Confirmar que normais de face são acessíveis e fazem sentido geométrico
+- [x] Solução `.slnx` com os 6 projetos e estrutura de pastas
+- [x] Pacotes NuGet básicos (Xbim.Essentials, Xbim.Geometry, geometry4Sharp)
+- [x] `Program.cs` mínimo: abre IFC, itera elementos, loga tipos + GlobalId
+- [x] `XbimModelLoader.Load()` v0: `IReadOnlyList<BuildingElement>` via `Xbim3DModelContext`
+- [x] `Xbim3DModelContext.MaxThreads = 1` (workaround OCCT thread-unsafe)
+
+**Saída:** `src/IfcEnvelopeMapper.Cli/Program.cs` imprime `{IfcType} {GlobalId} tris={N}` para 157 elementos.
 
 ---
 
-### Fase 1 — Estratégia primária + pipeline ponta a ponta
-**Meta:** implementar a primeira estratégia de detecção, agrupamento em fachadas e relatório JSON.
-**Critério de sucesso:** classificar todos os elementos do `duplex.ifc`; inspecionar manualmente se os resultados fazem sentido visual.
+### Fase 1 — Modelo refinado + testes-base (ATUAL — abr–mai/2026)
+**Meta:** absorver ADRs 02-11 no código e estabelecer infraestrutura de testes.
+**Critério de sucesso:** `dotnet test` passa com ≥20 testes; loader retorna `ModelLoadResult(Elements, Groups)` determinístico.
+
+**Domínio (Core):**
+- [ ] `BuildingElementContext` (record struct, ADR-08)
+- [ ] `BuildingElement` anêmico (required init, IEquatable, ADR-08 + ADR-11)
+- [ ] `BuildingElementGroup` (ADR-11)
+- [ ] `ModelLoadResult` (record)
+- [ ] `Face` com `Element + TriangleIds + FittedPlane` (ADR-04)
+- [ ] `Envelope`, `Facade` (mantidos do plano)
+- [ ] `DetectionResult`, `ElementClassification`
+
+**Pipeline (Core):**
+- [ ] `IModelLoader` retornando `ModelLoadResult`
+- [ ] `IElementFilter` + `DefaultElementFilter` (ADR-05)
+- [ ] `IDetectionStrategy`, `IFacadeGrouper`
+
+**Loader (Ifc):**
+- [ ] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, 2-level assertion (ADR-09)
+- [ ] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
+- [ ] Descarte de Elements sem geometria + log warning (§ Diagnostics)
+
+**Testes:**
+- [ ] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
+- [ ] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
+- [ ] `XbimModelLoaderTests` (integração com `duplex.ifc` + fixture com IfcCurtainWall)
+- [ ] 1 teste de regressão por snapshot em `data/models/cube.ifc`
+
+**Infra:**
+- [ ] `.github/workflows/build.yml` (dotnet restore/build/test)
+- [ ] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
+- [ ] `.gitignore` ajustado (não bloquear fixtures `*.json` / `*.bcf`)
+
+---
+
+### Fase 2 — Pipeline end-to-end (mai–ago/2026)
+**Meta:** `dotnet run detect duplex.ifc --strategy normals` produz JSON v2 completo.
+**Critério de sucesso:** JSON com `summary`, `classifications`, `facades`, `aggregates`, `diagnostics`; WWR calculado; F1 opcional via `--ground-truth`.
 
 **Detecção (Stage 1):**
-- [ ] Implementar `GeometricOps` (FaceNormals, ExternalFaces, ExternalFaceRatio, ComputeBuildingCentroid)
-- [ ] Implementar `NormalsStrategy : IDetectionStrategy` (candidata mais simples)
-- [ ] Produzir `DetectionResult` (Envelope + ElementClassification[])
+- [ ] `GeometricOps`: plane fitting PCA, face normals, clustering angular, building centroid
+- [ ] `NormalsStrategy : IDetectionStrategy`
+- [ ] `DetectionResult` (Envelope + ElementClassification[])
 
 **Agrupamento (Stage 2):**
-- [ ] Implementar `DbscanFacadeGrouper : IFacadeGrouper`
-- [ ] DBSCAN sobre normais + QuikGraph para componentes conectados
-- [ ] Produzir `Facade[]`
+- [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN + QuikGraph)
+- [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
 
-**Saída:**
-- [ ] Implementar `ReportBuilder` e `JsonReportWriter`
-- [ ] Calcular WWR por fachada no bloco `metrics`
-- [ ] CLI mínima: `ifcenvmapper detect duplex.ifc --strategy normals`
-- [ ] Inspeção manual dos resultados com IFC viewer (BIMvision ou xBIM WebUI)
+**Saída (Cli):**
+- [ ] `ReportBuilder` + `JsonReportWriter` (schema v2 com `aggregates` + `diagnostics`)
+- [ ] `BcfWriter` (ADR-06) — escopo mínimo: tópicos + viewpoints + GlobalId
+- [ ] CSV ground-truth loader + Precisão/Recall/F1/Kappa
+- [ ] `System.CommandLine`: flags documentadas (§ CLI v2)
+- [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
 
----
-
-### Fase 2 — Estratégias alternativas
-**Meta:** implementar as demais estratégias para exploração e seleção da mais adequada.
-**Critério de sucesso:** resultados comparáveis entre estratégias; seleção fundamentada da estratégia primária.
-
-**Ray Casting:**
-- [ ] Implementar `RayCastingStrategy` usando geometry3Sharp BVH
-- [ ] Testes unitários: ray-triangle intersection, BVH queries
-
-**Voxel / Flood-fill:**
-- [ ] Implementar `VoxelGrid3D` e voxelização de meshes trianguladas
-- [ ] Implementar flood-fill 3D (BFS a partir do exterior)
-- [ ] Implementar `VoxelFloodFillStrategy`
-
-**Seleção:**
-- [ ] Comparar resultados preliminares das 3 estratégias em 2-3 modelos
-- [ ] Selecionar e documentar a estratégia primária com justificativa
-- [ ] Documentar alternativas investigadas para capítulo de Discussão
+**Marco paralelo — Spike Viewer (1 semana, mai/2026):**
+- [ ] Blazor Server scaffold + three.js interop
+- [ ] Carregar 1 mesh + render + click → GlobalId no servidor
+- [ ] Decisão go/no-go para escopo Completo do Viewer (§ Viewer)
 
 ---
 
-### Fase 3 — Ground Truth e Avaliação Experimental
+### Fase 3 — Estratégias alternativas + seleção (ago–set/2026)
+**Meta:** comparar 3 estratégias e justificar a seleção da primária.
+**Critério de sucesso:** F1 reportado por estratégia em 2–3 modelos; decisão documentada na dissertação.
+
+- [ ] `RayCastingStrategy` (geometry4Sharp BVH)
+- [ ] `VoxelFloodFillStrategy` (VoxelGrid3D + flood-fill BFS)
+- [ ] Testes unitários por estratégia
+- [ ] Comparação em fixtures + seleção fundamentada
+- [ ] **Stage gate qualidade (set/2026):** se F1<0.60 em fixtures → Viewer vira MVP
+
+> Estratégias alternativas podem virar *Trabalho Futuro* se `NormalsStrategy` atingir F1≥0.75 e não houver tempo — decisão consciente, documentada.
+
+---
+
+### Fase 4 — Ground Truth & Avaliação Experimental (out–dez/2026)
 **Meta:** validar o método contra rótulos manuais de especialistas.
-**Critério de sucesso:** tabela Precisão/Recall/F1 por modelo e por tipologia.
+**Critério de sucesso:** tabela Precisão/Recall/F1/Kappa por modelo e por tipologia; ≥75% concordância entre especialistas.
 
-- [ ] Selecionar 3–5 modelos IFC de tipologias diferentes
-- [ ] Definir protocolo de rotulação (critérios, ferramenta, resolução de divergências)
-- [ ] Recrutar 5+ profissionais AEC para rotulação
-- [ ] Implementar leitor de ground truth CSV → `Dictionary<string, bool>`
-- [ ] Calcular Precisão, Recall, F1, Kappa de Cohen
-- [ ] Implementar `BcfWriter` para validação qualitativa com especialistas
-- [ ] Gerar tabela de resultados para o TCC
+- [ ] Selecionar 3–5 modelos IFC de tipologias diferentes (planta retangular, L, curva/irregular)
+- [ ] Protocolo de rotulação (critérios, ferramenta — provavelmente Viewer, resolução de divergências)
+- [ ] Recrutar 5+ profissionais AEC
+- [ ] Kappa de Cohen para concordância
+- [ ] Tabela de resultados para a dissertação
 
 ---
 
-### Fase 4 — Entrega
-**Meta:** finalizar documentação e publicar ferramenta como open-source.
+### Fase 5 — Viewer Completo (paralelo à Fase 4)
+**Meta:** ferramenta de curadoria assistida (ADR-07).
+**Critério de sucesso:** especialista abre IFC+JSON, navega, edita rotulação, exporta BCF que abre em BIMCollab.
 
-- [ ] README com instruções de instalação e uso
-- [ ] Publicar no GitHub como repositório público
+**Fase 5A — Render + inspeção (set–out/2026):**
+- [ ] `Components/`: render 3D por elemento colorido por fachada
+- [ ] Filtro exterior/interior, inspeção (GlobalId, IfcType, `IIfcProductResolver`)
+- [ ] Overlay opcional de ground truth CSV
+
+**Fase 5B — Edição + BCF (nov–dez/2026):**
+- [ ] `Editing/`: reclassificação manual de elementos, alteração de `facadeId`
+- [ ] `Export/`: `iabi.BCF` (ou fallback mínimo) — tópicos + viewpoints + comentários
+- [ ] JSON patch serializável (diff entre rotulação automática e curada)
+
+---
+
+### Fase 6 — Entrega (jan–fev/2027)
+**Meta:** finalizar documentação, testes de usabilidade e publicação.
+**Critério de sucesso:** defesa da Etapa 4 em 05/02/2027; repositório público e reproduzível.
+
+- [ ] Testes de usabilidade do Viewer com ≥3 especialistas AEC
+- [ ] README final (instalação, uso, exemplos, workaround Google Drive)
+- [ ] Publicação no GitHub como repositório público
+- [ ] Artefatos da dissertação: tabelas de resultado, figuras, links para reprodução
 
 > **Nota:** Não há saída de IFC enriquecido. O modelo original não é modificado. Resultados são exclusivamente JSON + BCF.
 
@@ -946,12 +1378,18 @@ A ferramenta é bem-sucedida academicamente quando:
 
 ## Próxima Sessão de Trabalho
 
-**Objetivo:** completar a Fase 0 (spike).
+**Objetivo:** iniciar a Fase 1 — refinar o modelo de domínio segundo ADRs 04-11.
 
-1. Criar a solução `.sln` com os 5 projetos
-2. Instalar pacotes NuGet
-3. Escrever `XbimModelLoader.Load()` mínimo — abrir `duplex.ifc` e listar elementos com seus tipos IFC
-4. Extrair triangulated mesh de um `IfcWall` via `Xbim3DModelContext`
-5. Confirmar que normais de face são acessíveis e fazem sentido geométrico
+Ordem sugerida (passos pequenos, revisáveis):
 
-**Arquivo IFC de entrada:** `duplex.ifc` (em `data/models/`)
+1. **Higiene final do repo** — `.gitignore` ajustado (liberar `*.json`/`*.bcf` em `data/fixtures/` e `tests/`), `2027-TCC/00_Coordenacao/status.md` atualizado refletindo Fase 0 concluída.
+2. **`Face.cs`** — alinhar com ADR-04 (`Element + TriangleIds + FittedPlane`). Commit pequeno isolado.
+3. **`BuildingElementContext` + `BuildingElement` anêmico** — ADR-08. Ajustar `XbimModelLoader` para usar `required init`.
+4. **`BuildingElementGroup` + `ModelLoadResult`** — ADR-11. `IModelLoader` passa a retornar `ModelLoadResult`. `Program.cs` adaptado.
+5. **`IElementFilter` + `DefaultElementFilter`** — ADR-05. Injetar no loader por construtor.
+6. **Loader v1** — agregação 2-níveis (ADR-09) com `Debug.Assert`; descarte de Element sem geometria com log warning.
+7. **`IIfcProductResolver`** — ADR-10. Ainda sem consumidor; preparado para Viewer e testes.
+8. **Testes-base** — scaffold `IfcEnvelopeMapper.Tests`, primeiros 5-8 testes unitários (BuildingElement, Face, Group, Context), 1 teste de integração com `duplex.ifc`.
+9. **CI** — `.github/workflows/build.yml` rodando `dotnet test` no push.
+
+**Arquivo IFC de entrada:** `duplex.ifc` (em `data/models/`). Para fixture com agregador, produzir ou localizar um IFC pequeno com IfcCurtainWall.
