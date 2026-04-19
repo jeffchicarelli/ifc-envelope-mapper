@@ -156,4 +156,142 @@ public sealed class VoxelGrid3DTests
         coords.Should().Contain(new VoxelCoord(0, 0, 0));
         coords.Should().Contain(new VoxelCoord(1, 1, 1));
     }
+
+    // 5x5x5 grid (indices 0-4). Outer layer: free exterior shell.
+    // Hollow box walls at indices 1 and 3: Occupied.
+    // Interior: (2,2,2) — unreachable from outside through the walls.
+    private static VoxelGrid3D MakeHollowBox()
+    {
+        var grid = new VoxelGrid3D(
+            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(5, 5, 5)),
+            voxelSize: 1.0);
+
+        for (var x = 1; x <= 3; x++)
+        {
+            for (var y = 1; y <= 3; y++)
+            {
+                for (var z = 1; z <= 3; z++)
+                {
+                    if (x == 1 || x == 3 || y == 1 || y == 3 || z == 1 || z == 3)
+                        grid[new VoxelCoord(x, y, z)] = VoxelState.Occupied;
+                }
+            }
+        }
+
+        return grid;
+    }
+
+    [Fact]
+    public void GrowExterior_CornerVoxel_BecomesExterior()
+    {
+        // Arrange
+        var grid = MakeHollowBox();
+
+        // Act
+        grid.GrowExterior();
+
+        // Assert
+        grid[new VoxelCoord(0, 0, 0)].Should().Be(VoxelState.Exterior);
+    }
+
+    [Fact]
+    public void GrowExterior_WallVoxels_StayOccupied()
+    {
+        // Arrange
+        var grid = MakeHollowBox();
+
+        // Act
+        grid.GrowExterior();
+
+        // Assert
+        grid[new VoxelCoord(1, 1, 1)].Should().Be(VoxelState.Occupied);
+        grid[new VoxelCoord(3, 3, 3)].Should().Be(VoxelState.Occupied);
+    }
+
+    [Fact]
+    public void GrowExterior_InteriorVoxel_StaysUnknown()
+    {
+        // Arrange
+        var grid = MakeHollowBox();
+
+        // Act
+        grid.GrowExterior();
+
+        // Assert — BFS cannot reach (2,2,2) through Occupied walls
+        grid[new VoxelCoord(2, 2, 2)].Should().Be(VoxelState.Unknown);
+    }
+
+    [Fact]
+    public void GrowInterior_AfterGrowExterior_InteriorVoxelBecomesInterior()
+    {
+        // Arrange
+        var grid = MakeHollowBox();
+        grid.GrowExterior();
+
+        // Act
+        grid.GrowInterior();
+
+        // Assert
+        grid[new VoxelCoord(2, 2, 2)].Should().Be(VoxelState.Interior);
+    }
+
+    [Fact]
+    public void GrowVoid_SingleRoom_AssignsRoomId1()
+    {
+        // Arrange
+        var grid = MakeHollowBox();
+        grid.GrowExterior();
+        grid.GrowInterior();
+
+        // Act
+        grid.GrowVoid();
+
+        // Assert
+        grid.GetRoomId(new VoxelCoord(2, 2, 2)).Should().Be(1);
+    }
+
+    [Fact]
+    public void FillGaps_UnknownSurroundedByExterior_BecomesExterior()
+    {
+        // Arrange — (1,1,1) surrounded on all 6 faces by Exterior
+        var grid = new VoxelGrid3D(
+            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
+            voxelSize: 1.0);
+
+        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(2, 1, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 2, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 1, 2)] = VoxelState.Exterior;
+
+        // Act
+        grid.FillGaps();
+
+        // Assert
+        grid[new VoxelCoord(1, 1, 1)].Should().Be(VoxelState.Exterior);
+    }
+
+    [Fact]
+    public void FillGaps_UnknownWithFiveExteriorNeighbors_StaysUnknown()
+    {
+        // Arrange — only 5 of 6 face-adjacent voxels are Exterior
+        var grid = new VoxelGrid3D(
+            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
+            voxelSize: 1.0);
+
+        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(2, 1, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 2, 1)] = VoxelState.Exterior;
+        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Exterior;
+
+        // (1,1,2) left as Unknown — only 5 Exterior neighbors
+
+        // Act
+        grid.FillGaps();
+
+        // Assert
+        grid[new VoxelCoord(1, 1, 1)].Should().Be(VoxelState.Unknown);
+    }
 }

@@ -6,6 +6,7 @@ public sealed class VoxelGrid3D
 {
     private readonly VoxelState[,,] _states;
     private readonly HashSet<string>[,,] _occupants;
+    private readonly int[,,] _roomIds;
 
     public AxisAlignedBox3d Bounds { get; }
     public double VoxelSize { get; }
@@ -24,6 +25,7 @@ public sealed class VoxelGrid3D
 
         _states    = new VoxelState[NX, NY, NZ];
         _occupants = new HashSet<string>[NX, NY, NZ];
+        _roomIds   = new int[NX, NY, NZ];
     }
 
     public VoxelState this[VoxelCoord c]
@@ -127,8 +129,127 @@ public sealed class VoxelGrid3D
         }
     }
 
-    public void GrowExterior() => throw new NotImplementedException();
-    public void GrowInterior() => throw new NotImplementedException();
-    public void GrowVoid()     => throw new NotImplementedException();
-    public void FillGaps()     => throw new NotImplementedException();
+    // (0,0,0) is guaranteed exterior because the caller expands the bounding box
+    // by 2*voxelSize before constructing the grid, ensuring a free shell around the model.
+    public void GrowExterior()
+    {
+        var queue = new Queue<VoxelCoord>();
+        var seed = new VoxelCoord(0, 0, 0);
+        this[seed] = VoxelState.Exterior;
+        queue.Enqueue(seed);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var neighbor in Neighbors26(current))
+            {
+                if (this[neighbor] == VoxelState.Unknown)
+                {
+                    this[neighbor] = VoxelState.Exterior;
+                    queue.Enqueue(neighbor);
+                }
+            }
+        }
+    }
+
+    // Must run after GrowExterior. Any voxel still Unknown was never reached from outside.
+    public void GrowInterior()
+    {
+        for (var x = 0; x < NX; x++)
+        {
+            for (var y = 0; y < NY; y++)
+            {
+                for (var z = 0; z < NZ; z++)
+                {
+                    var c = new VoxelCoord(x, y, z);
+                    if (this[c] == VoxelState.Unknown)
+                    {
+                        this[c] = VoxelState.Interior;
+                    }
+                }
+            }
+        }
+    }
+    public int GetRoomId(VoxelCoord c) => _roomIds[c.X, c.Y, c.Z];
+
+    // Must run after GrowInterior. Each connected region of Interior voxels
+    // becomes a distinct room numbered from 1 upward.
+    public void GrowVoid()
+    {
+        var roomId = 0;
+        for (var x = 0; x < NX; x++)
+        {
+            for (var y = 0; y < NY; y++)
+            {
+                for (var z = 0; z < NZ; z++)
+                {
+                    var seed = new VoxelCoord(x, y, z);
+                    if (this[seed] != VoxelState.Interior || _roomIds[x, y, z] != 0)
+                    {
+                        continue;
+                    }
+
+                    roomId++;
+                    var queue = new Queue<VoxelCoord>();
+                    _roomIds[x, y, z] = roomId;
+                    queue.Enqueue(seed);
+
+                    while (queue.Count > 0)
+                    {
+                        var current = queue.Dequeue();
+                        foreach (var neighbor in Neighbors26(current))
+                        {
+                            if (this[neighbor] == VoxelState.Interior
+                                && _roomIds[neighbor.X, neighbor.Y, neighbor.Z] == 0)
+                            {
+                                _roomIds[neighbor.X, neighbor.Y, neighbor.Z] = roomId;
+                                queue.Enqueue(neighbor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Closes 1-voxel gaps in Occupied shells caused by imperfect IFC meshes.
+    // A remaining Unknown voxel surrounded by 6+ face-adjacent Exterior voxels is a gap.
+    public void FillGaps()
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            for (var x = 0; x < NX; x++)
+            {
+                for (var y = 0; y < NY; y++)
+                {
+                    for (var z = 0; z < NZ; z++)
+                    {
+                        var c = new VoxelCoord(x, y, z);
+                        if (this[c] != VoxelState.Unknown) continue;
+
+                        var exteriorNeighbors = Neighbors6(c)
+                           .Count(n => this[n] == VoxelState.Exterior);
+
+                        if (exteriorNeighbors >= 6)
+                        {
+                            this[c] = VoxelState.Exterior;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        } while (changed);
+    }
+
+    private IEnumerable<VoxelCoord> Neighbors6(VoxelCoord c)
+    {
+        VoxelCoord[] candidates =
+        [
+            new(c.X - 1, c.Y, c.Z), new(c.X + 1, c.Y, c.Z),
+            new(c.X, c.Y - 1, c.Z), new(c.X, c.Y + 1, c.Z),
+            new(c.X, c.Y, c.Z - 1), new(c.X, c.Y, c.Z + 1)
+        ];
+        return candidates.Where(IsInBounds);
+    }
 }
