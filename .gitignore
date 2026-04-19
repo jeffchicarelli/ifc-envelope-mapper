@@ -16,6 +16,8 @@ obj/
 
 ## Build results
 [Dd]ebug/
+!src/**/Debug/
+!tests/**/Debug/
 [Rr]elease/
 x64/
 x86/

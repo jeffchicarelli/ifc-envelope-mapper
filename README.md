@@ -19,7 +19,7 @@ dotnet build --configuration Release
 dotnet test  --no-build --configuration Release
 ```
 
-At the time of writing: 7 projects, 25 unit tests, all green on CI.
+At the time of writing: 7 projects, 34 unit tests, all green on CI.
 
 ## Run the CLI
 
@@ -41,12 +41,16 @@ pwsh scripts/run-from-temp.ps1
 
 ```
 src/
-  IfcEnvelopeMapper.Core/         Domain types and interfaces (no IFC dependency)
+  IfcEnvelopeMapper.Core/         Domain types and interfaces (Element/, Surface/, Loading/, Detection/, Grouping/)
   IfcEnvelopeMapper.Geometry/     Geometric operations on DMesh3 (plane fitting, etc.)
   IfcEnvelopeMapper.Algorithms/   Envelope detection and facade grouping strategies
   IfcEnvelopeMapper.Ifc/          xBIM adapter: implements IModelLoader
+  IfcEnvelopeMapper.Lod/          LoD generators (ADR-15) — scaffolded
+  IfcEnvelopeMapper.Debug/        Debug sinks: GltfDebugSink, ConsoleDebugSink (ADR-16) — scaffolded
   IfcEnvelopeMapper.Cli/          System.CommandLine executable
   IfcEnvelopeMapper.Viewer/       Web viewer (Blazor + three.js) — scaffolded
+tools/
+  debug-viewer/                   Standalone HTML + three.js glTF viewer (ADR-16 Camada B)
 tests/
   IfcEnvelopeMapper.Tests/        xUnit + FluentAssertions
 docs/
