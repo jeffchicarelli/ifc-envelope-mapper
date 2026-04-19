@@ -1,6 +1,6 @@
 using Xbim.Ifc4.Interfaces;
 
-namespace IfcEnvelopeMapper.Ifc;
+namespace IfcEnvelopeMapper.Ifc.Resolver;
 
 public interface IIfcProductResolver
 {

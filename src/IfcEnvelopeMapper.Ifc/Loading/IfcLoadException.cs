@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Ifc;
+namespace IfcEnvelopeMapper.Ifc.Loading;
 
 public sealed class IfcLoadException : Exception
 {

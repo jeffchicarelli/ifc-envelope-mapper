@@ -1,8 +1,8 @@
 using IfcEnvelopeMapper.Core.Loading;
-using IfcEnvelopeMapper.Ifc;
+using IfcEnvelopeMapper.Ifc.Loading;
 
 var ifcPath = FindUpward("data/models/duplex.ifc")
-    ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
+              ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
 
 Console.WriteLine($"Opening: {ifcPath}");
 

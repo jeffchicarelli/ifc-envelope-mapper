@@ -356,21 +356,22 @@ IfcEnvelopeMapper/
 │   │   │   └── ElementClassification.cs
 │   │   ├── Grouping/                     ← Stage 2 — agrupamento em fachadas
 │   │   │   └── IFacadeGrouper.cs
-│   │   └── Debug/                        ← contrato de debug (ADR-16)
-│   │       ├── IDebugSink.cs
-│   │       ├── DebugShape.cs             ← Mesh/TriangleSelection/Points/Voxel/Ray/Sphere
-│   │       ├── DebugColor.cs             ← paleta convencional + Tab10/Viridis
-│   │       └── NullDebugSink.cs          ← zero-overhead default
 │   │   [deps: geometry4Sharp]
 │   │
 │   ├── IfcEnvelopeMapper.Geometry/       ← operações geométricas stateless
-│   │   └── GeometricOps.cs
+│   │   ├── GeometricOps.cs
+│   │   └── Debug/
+│   │       └── GeometryDebug.cs         ← debugger geométrico (#if DEBUG) (ADR-17)
 │   │   [deps: Core, geometry4Sharp, NetTopologySuite]
 │   │
 │   ├── IfcEnvelopeMapper.Ifc/            ← integração xBIM
-│   │   ├── XbimModelLoader.cs            ← implementa IModelLoader
-│   │   ├── IIfcProductResolver.cs        ← acesso cru ao IIfcProduct (ADR-10)
-│   │   └── XbimIfcProductResolver.cs
+│   │   ├── Loading/
+│   │   │   ├── XbimModelLoader.cs        ← implementa IModelLoader
+│   │   │   ├── IfcLoadException.cs
+│   │   │   └── IfcGeometryException.cs
+│   │   └── Resolver/
+│   │       ├── IIfcProductResolver.cs    ← acesso cru ao IIfcProduct (ADR-10)
+│   │       └── XbimIfcProductResolver.cs
 │   │   [deps: Core, Xbim.Essentials, Xbim.Geometry]
 │   │
 │   ├── IfcEnvelopeMapper.Algorithms/     ← estratégias de detecção + agrupamento
@@ -401,21 +402,14 @@ IfcEnvelopeMapper/
 │   │       └── Lod42MergedSurfaces.cs
 │   │   [deps: Core, Geometry, NetTopologySuite]
 │   │
-│   ├── IfcEnvelopeMapper.Debug/          ← sistema de debug (ADR-16)
-│   │   ├── Sinks/
-│   │   │   ├── GltfDebugSink.cs          ← via SharpGLTF
-│   │   │   ├── ConsoleDebugSink.cs       ← só métricas em log
-│   │   │   └── CompositeDebugSink.cs     ← fan-out
-│   │   ├── Conversion/
-│   │   │   └── DebugShapeToGltf.cs       ← mesh/points/voxels/rays → glTF nodes
-│   │   └── Palette/
-│   │       └── Palettes.cs               ← Tab10, Viridis, paleta convencional
-│   │   [deps: Core, SharpGLTF.Toolkit]
+│   ├── IfcEnvelopeMapper.Debug/          ← reservado para utilitários opcionais (e.g. glTF writer)
+│   │   └── Placeholder.cs               ← GeometryDebug lives in IfcEnvelopeMapper.Geometry
+│   │   [deps: Core]
 │   │
 │   ├── IfcEnvelopeMapper.Cli/            ← entry point, output writers
 │   │   ├── Commands/
 │   │   │   ├── DetectCommand.cs          ← orquestra o pipeline
-│   │   │   └── DebugVoxelCommand.cs      ← dump voxel como PLY/OBJ (ADR-16, LoD 5)
+│   │   │   └── DebugVoxelCommand.cs      ← dump voxel como PLY/OBJ (Fase 2)
 │   │   ├── Output/
 │   │   │   ├── JsonReportWriter.cs       ← usa ILodGenerator por --lod
 │   │   │   └── BcfWriter.cs              ← mantido em paralelo ao Viewer (ADR-06)
@@ -431,17 +425,16 @@ IfcEnvelopeMapper/
 │
 ├── tests/
 │   └── IfcEnvelopeMapper.Tests/          ← xUnit + FluentAssertions
-│       ├── Element/                      ← BuildingElement, Group, Context
-│       ├── Surface/                      ← Face, Envelope, Facade
-│       ├── Detection/                    ← Strategy + FaceExtractor
-│       ├── Grouping/                     ← FacadeGrouper (DBSCAN + QuikGraph)
-│       ├── Loading/                      ← Filter + loader
-│       ├── Geometry/                     ← plane fitting, clustering
-│       ├── Ifc/                          ← loader contra fixtures IFC
-│       ├── Algorithms/                   ← strategies + grouper implementations
-│       ├── Lod/                          ← geradores por LoD level
-│       ├── Debug/                        ← NullDebugSink overhead = 0; GltfDebugSink schema
-│       └── Regression/                   ← snapshot tests (expected-report.json)
+│       ├── Core/
+│       │   ├── Detection/               ← DetectionResult, ElementClassification
+│       │   ├── Element/                 ← BuildingElement, Group, Context
+│       │   ├── Loading/                 ← DefaultElementFilter
+│       │   └── Surface/                 ← Face, Envelope, Facade
+│       ├── Ifc/
+│       │   └── Loading/                 ← XbimModelLoader (integração)
+│       ├── Algorithms/                  ← strategies + grouper implementations
+│       ├── Lod/                         ← geradores por LoD level
+│       └── Regression/                  ← snapshot tests (expected-report.json)
 │
 ├── data/
 │   ├── models/                           ← arquivos IFC para testes
@@ -455,7 +448,7 @@ IfcEnvelopeMapper/
 
 ### Por que 8 projetos?
 
-`Core` concentra o domínio, as interfaces de pipeline e o contrato de debug (`IDebugSink`) — tudo sem depender de infraestrutura (exceto `geometry4Sharp` para tipos geométricos). `Geometry` isola operações geométricas puras, reutilizáveis entre strategies. `Ifc` encapsula toda a complexidade do xBIM — tanto o carregamento quanto o acesso ad-hoc a metadados IFC via `IIfcProductResolver` (ADR-10) —, e pode ser substituído por outra biblioteca de leitura IFC sem tocar o domínio. `Algorithms` contém as strategies e o agrupamento — a parte mais experimental do projeto. `Lod` (ADR-15) implementa os 10 geradores do framework Biljecki/van der Vaart — cada LoD é um `ILodGenerator` que consome `DetectionResult + Facade[]` e produz saída no formato natural daquele nível (Polygon 2D, DMesh3, voxel grid). `Debug` (ADR-16) implementa os sinks (`GltfDebugSink` via SharpGLTF, `ConsoleDebugSink`, `CompositeDebugSink`) para instrumentação visual em todos os estágios. `Cli` é um dos dois pontos de entrada e o lugar dos writers de relatório (JSON + BCF) e do comando `debug-voxel` para LoD 5 via debug. `Viewer` é o segundo ponto de entrada: visualizador web que consome o mesmo JSON produzido pela CLI e permite render, inspeção, edição manual de rotulação e export BCF complementar (ADR-07 — stretch; decisão de absorção em Fase 5, ver ADR-16).
+`Core` concentra o domínio e as interfaces de pipeline — tudo sem depender de infraestrutura (exceto `geometry4Sharp` para tipos geométricos). `Geometry` isola operações geométricas puras, reutilizáveis entre strategies. `Ifc` encapsula toda a complexidade do xBIM — tanto o carregamento quanto o acesso ad-hoc a metadados IFC via `IIfcProductResolver` (ADR-10) —, e pode ser substituído por outra biblioteca de leitura IFC sem tocar o domínio. `Algorithms` contém as strategies e o agrupamento — a parte mais experimental do projeto. `Lod` (ADR-15) implementa os 10 geradores do framework Biljecki/van der Vaart — cada LoD é um `ILodGenerator` que consome `DetectionResult + Facade[]` e produz saída no formato natural daquele nível (Polygon 2D, DMesh3, voxel grid). `Debug` (ADR-17) é um placeholder reservado para utilitários opcionais de serialização futura — `GeometryDebug` (`#if DEBUG`) vive em `Geometry`. `Cli` é um dos dois pontos de entrada e o lugar dos writers de relatório (JSON + BCF) e do comando `debug-voxel` para LoD 5 via debug. `Viewer` é o segundo ponto de entrada: visualizador web que consome o mesmo JSON produzido pela CLI e permite render, inspeção, edição manual de rotulação e export BCF complementar (ADR-07 — stretch; decisão de absorção em Fase 5, ver ADR-16).
 
 ### Dependency Inversion
 
@@ -479,7 +472,7 @@ Core ← Debug ──────────────────┘
 Core ────────────────────────────
 ```
 
-`Viewer` depende de `Core + Ifc + Algorithms + Lod + Debug` mas não é dependência de ninguém. `Cli` depende de todos (exceto Viewer). `Tests` depende de todos os projetos de `src/`. Debug é acessado via `Debug.Emit()` (facade estático — ADR-16 Opção A); a CLI ativa com `Debug.Configure(new GltfDebugSink(...))` e produção usa `NullDebugSink` por default (zero overhead).
+`Viewer` depende de `Core + Ifc + Algorithms + Lod + Debug` mas não é dependência de ninguém. `Cli` depende de todos (exceto Viewer). `Tests` depende de todos os projetos de `src/`. Debug geométrico é acessado diretamente via `GeometryDebug.Mesh(...)` etc. — sem configuração; `#if DEBUG` garante zero overhead em Release (ADR-17).
 
 ---
 
@@ -539,7 +532,7 @@ Facade[]
 
 ```csharp
 // DetectCommand.cs — composition root
-if (options.Debug) Debug.Configure(new GltfDebugSink(options.DebugDir)); // Opção A (ADR-16)
+// GeometryDebug (#if DEBUG) está sempre disponível sem configuração (ADR-17)
 
 var model    = loader.Load(modelPath);                        // IModelLoader → ModelLoadResult
 var result   = strategy.Detect(model.Elements);               // IDetectionStrategy → DetectionResult
@@ -551,7 +544,7 @@ var report   = ReportBuilder.Build(result, facades, lodOutputs, model.Groups, ru
 writer.WriteReports(report, outputPath);                      // 1 JSON por LoD + reports/
 ```
 
-**Instrumentação de debug (ADR-16, Opção A).** Strategies, grouper e LoD generators chamam `Debug.Emit(shape)` internamente — sem `IDebugSink` em interfaces ou construtores. Na CLI, `Debug.Configure(new GltfDebugSink(...))` ativa a instrumentação; sem chamada, o sink default é `NullDebugSink` (zero overhead, JIT elimina chamadas). `GltfDebugSink` escreve artefatos glTF em `data/debug/{stage}/scene.gltf` por scope, com nodes nomeados por `GlobalId` para navegação elemento-a-elemento em qualquer viewer glTF standard.
+**Instrumentação de debug (ADR-17).** Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente — sem configuração, sem interfaces. Em Release builds, `#if DEBUG` elimina todas as chamadas pelo pré-processador. Em Debug builds, `Flush()` serializa para `%TEMP%\ifc-debug-output.gltf` (implementação SharpGLTF na Fase 2). Developer inspeciona com breakpoints no IDE.
 
 **Por que sem `FacadeDetector`?** A CLI é a composition root e orquestra diretamente os dois estágios. Isto permite:
 - Trocar strategy e grouper de forma independente
@@ -712,7 +705,7 @@ FUNÇÃO VoxelFloodFillDetect(elementos, tamanhoVoxel) → DetectionResult
         //   agrupados coplanarmente via g4.OrthogonalPlaneFit3 (ADR-13)
         facesAgrupadas ← ExtrairFacesVoltadasParaExterior(elem, grid)
         // Cada Face: {Element, TriangleIds, FittedPlane, Normal, Area, Centroid}
-        Debug.Emit(new DebugTriangleSelection(elem, facesAgrupadas))  // Opção A
+        GeometryDebug.Triangles(elem.Mesh, facesAgrupadas.SelectMany(f => f.TriangleIds))  // ADR-17
 
     RETORNAR DetectionResult(envelope, classificacoes)
 ```
@@ -1115,16 +1108,26 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 
 ### ADR-16 — Sistema de debug multi-estágio via glTF
 
-**Decisão (Opção A — facade estático).** Projeto novo `IfcEnvelopeMapper.Debug/` define `IDebugSink` em Core e implementa sinks em Debug/. Sink primário: `GltfDebugSink` (via `SharpGLTF.Toolkit`). `NullDebugSink` default em produção (zero overhead, JIT elimina chamadas). `Debug` é uma facade estática em Core — `Debug.Configure(sink)` na CLI e `Debug.Emit(shape)` nos estágios. Estratégias e grouper **não recebem `IDebugSink` em construtores ou interfaces**. Cada estágio emite `DebugShape`s agrupadas por `Scope("element-{GlobalId}")` — permite iteração elemento-a-elemento em qualquer viewer glTF standard (browser, CloudCompare, Blender). LoD 5.0 (voxelização visualizada) é **subsumida** por este sistema via `DebugVoxelSet` — não é LoD separado. Paleta convencional hardcoded (`DebugColor.Original`, `Subject`, `GroundTruth`, `Error`, `Warning` + `Tab10`/`Viridis`).
+> ⚠️ **Substituída por ADR-17 (2026-04-19).** Ver ADR-17 abaixo.
 
-**Motivo.** Debug visual é condição sine qua non para calibração: voxel-size, `ε`/`minPts` do DBSCAN, tolerâncias — todos requerem inspeção visual para não virar adivinhação. Adiar debug para Fase 5 custaria semanas de calibração cega. glTF é standard: qualquer browser abre (`https://gltf-viewer.donmccurdy.com/` ou extensão VSCode), e CloudCompare/Blender também. Zero lock-in em tool custom. Evolução: Camada A (browser público) desde Fase 2 → Camada B (viewer HTML local em `tools/debug-viewer/`) na Fase 3 → Camada C (possível integração ao Viewer Blazor) opcional na Fase 5.
+**Decisão (Opção A — facade estático).** Projeto novo `IfcEnvelopeMapper.Debug/` define `IDebugSink` em Core e implementa sinks em Debug/. Sink primário: `GltfDebugSink` (via `SharpGLTF.Toolkit`). `NullDebugSink` default em produção.
+
+---
+
+### ADR-17 — Debug geométrico via compilação condicional (#if DEBUG)
+
+**Decisão.** Substituir a arquitetura de runtime `IDebugSink`/`NullDebugSink`/`GltfDebugSink` por uma classe estática `GeometryDebug` em `IfcEnvelopeMapper.Geometry/Debug/`, inteiramente envolvida em `#if DEBUG`. Em builds Release, todas as chamadas são eliminadas pelo pré-processador do C# — zero overhead, zero configuração, sem null-object pattern. Em builds Debug, cada método acumula formas na lista interna e chama `Flush()` imediatamente; na Fase 2, `Flush()` serializa para `%TEMP%\ifc-debug-output.gltf` via `SharpGLTF`. O developer define breakpoints no IDE para controlar o ritmo da inspeção.
+
+**Localização em Geometry (não Core).** `Voxels()` depende de `VoxelGrid3D`, que é um tipo Geometry. `Core` não pode referenciar `Geometry` — dependência invertida. Todos os projetos que precisam do debugger (Algorithms, Cli) já referenciam Geometry.
+
+**Motivo.** `IDebugSink` adicionava complexidade desnecessária: DI em construtores, null-sink em produção, fan-out. `#if DEBUG` é o padrão idiomático do C# para código de desenvolvimento — eliminação em compile-time, sem configuração.
 
 **Consequência.**
-- CLI ganha `--debug`, `--debug-stages <lista>`, `--debug-elements <GlobalIds>` e subcomando `debug-voxel` (PLY/OBJ/JSON dumps da grade).
-- Estrutura de scopes: `debug/{stage}/scene.gltf` com nodes nomeados por `GlobalId`. Flag `--debug-per-element` gera arquivo por elemento em modelos grandes.
-- Instrumentação obrigatória nos estágios: loading, voxel rasterize, growExterior/Interior/Void, FillGaps, classification, face extraction, DBSCAN (Gauss sphere + cluster assignment), QuikGraph (componentes), fachadas finais, RayCasting, LoDs.
-- `SharpGLTF.Toolkit` adicionado à stack (NuGet, MIT).
-- **ADR-07 pode ser absorvida.** Se o debug-viewer (Camada B) evoluir para UX amigável a end-user, Viewer MVP Blazor pode ser absorvido pelo debug-viewer. Decisão adiada para Fase 5 — mantém ADR-07 como stretch goal até lá.
+- Deletados de `Core`: `IDebugSink`, `DebugShape`, `DebugColor`, `NullDebugSink`, `Debug`.
+- `IfcEnvelopeMapper.Debug/` mantido como placeholder para utilitários opcionais de serialização futura.
+- Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente.
+- `SharpGLTF.Toolkit` permanece na stack — será usado em `Flush()` na Fase 2.
+- **ADR-07 pode ser absorvida.** Se o debug-viewer (Camada B) evoluir para UX amigável a end-user, Viewer MVP Blazor pode ser absorvido. Decisão adiada para Fase 5.
 
 ---
 
@@ -1322,26 +1325,11 @@ Opções específicas por estratégia:
   --ray-count       <int>       [raycast]      Raios por centroide        [padrão: 64]
   --hit-ratio       <float>     [raycast]      Razão mínima exterior      [padrão: 0.5]
 
-Opções de debug (ADR-16):
-  --debug                                        Ativa GltfDebugSink em ./debug/
-  --debug-stages    <lista>                      Subset de stages a instrumentar
-                                                 (load,voxel,growExt,growInt,growVoid,fillGaps,
-                                                  classify,faceExtract,dbscan,quikgraph,
-                                                  facades,raycast,lods)
-  --debug-elements  <GlobalIds>                  Só estes elementos (vírgula-separados)
-  --debug-per-element                            Um glTF por elemento (modelos grandes)
-
-Subcomandos:
-  detect <model.ifc> [opções]                    Pipeline completo
-  debug-voxel <model.ifc> [opções]               Dump da grade voxel como PLY/OBJ/JSON
-
 Exemplos:
   ifcenvmapper detect duplex.ifc
   ifcenvmapper detect duplex.ifc --lod 1.0,3.2 --voxel-size 0.25 --output results/
   ifcenvmapper detect duplex.ifc --strategy raycast --ray-count 128   # baseline P4
   ifcenvmapper detect duplex.ifc --ground-truth data/ground-truth/duplex.csv
-  ifcenvmapper detect duplex.ifc --debug --debug-stages voxel,dbscan  # calibração
-  ifcenvmapper debug-voxel duplex.ifc --voxel-size 0.3 --output voxels/
 ```
 
 **Formato do ground truth CSV:**
@@ -1385,9 +1373,9 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold (ATUAL — abr–mai/2026)
-**Meta:** absorver ADRs 02-16 no código e estabelecer infraestrutura de testes + contrato de debug antes de qualquer algoritmo novo.
-**Critério de sucesso:** `dotnet test` passa com ≥15 testes em CI GitHub Actions; loader retorna `ModelLoadResult(Elements, Groups)` determinístico; `Debug.Configure()`/`Debug.Emit()` compilam e `NullDebugSink` é o default (zero overhead).
+### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold ✅ (concluída — abr/2026)
+**Meta:** absorver ADRs 02-17 no código e estabelecer infraestrutura de testes + debug geométrico antes de qualquer algoritmo novo.
+**Critério de sucesso:** ✅ 34 testes unitários no CI + 2 integração local; loader retorna `ModelLoadResult(Elements, Groups)`; `GeometryDebug` compila em Debug e é eliminado em Release.
 
 **Domínio (Core):**
 - [x] `BuildingElementContext` (record struct, ADR-08)
@@ -1405,52 +1393,44 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 - [x] `Detection/IFaceExtractor.cs` — `BuildingElement → Face[]` via PCA coplanar
 - [x] `Grouping/IFacadeGrouper.cs` — assinatura limpa: `Group(Envelope)`
 
-**Debug (Core + projeto Debug) — ADR-16 Opção A:**
-- [ ] `IDebugSink` + `DebugShape` hierarchy (Mesh/TriangleSelection/PointCloud/VoxelSet/Ray/Edge/Sphere) em Core
-- [ ] `DebugColor` + paletas (Tab10, Viridis, constantes convencionais) em Core
-- [ ] `NullDebugSink.Instance` (singleton, zero overhead) em Core
-- [ ] `Debug` — facade estática em Core: `Configure(IDebugSink)` + `Emit(DebugShape)` (ADR-16 Opção A)
-- [ ] Projeto `IfcEnvelopeMapper.Debug/` scaffolded (sem sinks ainda — entram em P2)
+**Debug (Geometry) — ADR-17:**
+- [x] `GeometryDebug` (#if DEBUG) em `IfcEnvelopeMapper.Geometry/Debug/` — 9 métodos de primitivas geométricas (`Mesh`, `Triangles`, `Points`, `Line`, `Lines`, `Box`, `Plane`, `Sphere`, `Normal`)
+- [x] Projeto `IfcEnvelopeMapper.Debug/` — placeholder para utilitários de serialização futura
 
 **Loader (Ifc):**
-- [ ] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, 2-level assertion (ADR-09), chama `Debug.Emit()` internamente (Opção A)
-- [ ] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
-- [ ] Descarte de Elements sem geometria + log warning (§ Diagnostics)
+- [x] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, error handling tipado
+- [x] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
+- [x] Descarte de Elements sem geometria (TriangleCount == 0)
 
 **Testes:**
-- [ ] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
-- [ ] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
-- [ ] `XbimModelLoaderTests` (integração com `duplex.ifc` + fixture com IfcCurtainWall)
-- [ ] `DebugTests` — confirmam que `Debug.Emit()` compila com `NullDebugSink` default e JIT elimina overhead
-- [ ] 1 teste de regressão por snapshot em `data/models/cube.ifc`
+- [x] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
+- [x] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
+- [x] `XbimModelLoaderTests` (integração com `duplex.ifc`, Category=Integration)
 
 **Infra:**
-- [ ] `.github/workflows/build.yml` (dotnet restore/build/test)
-- [ ] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
-- [ ] `.gitignore` ajustado (não bloquear fixtures `*.json` / `*.bcf`; bloquear `data/debug/` local)
+- [x] `.github/workflows/build.yml` — PRs para main, ubuntu-latest, exclui Category=Integration
+- [x] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
+- [x] `.gitignore` ajustado
 
 ---
 
-### Fase 2 — P2+P3: Voxel ponta-a-ponta + JsonReportWriter + Debug + LoD 3.2 + LoD 5 via debug (mai–ago/2026)
-**Meta:** `dotnet run detect duplex.ifc` produz `report_lod32.json` completo + `debug/` com glTF instrumentado + `debug-voxel` subcomando funcionando.
+### Fase 2 — P2+P3: Voxel ponta-a-ponta + JsonReportWriter + GeometryDebug.Flush() + LoD 3.2 (mai–ago/2026)
+**Meta:** `dotnet run detect duplex.ifc` produz `report_lod32.json` completo + `%TEMP%\ifc-debug-output.gltf` inspecionável via debug-viewer.
 **Referência canônica:** van der Vaart (2022) — IFC_BuildingEnvExtractor (`inc/voxelGrid.h`, `voxel.h`, `helper.h`). Código-fonte completo disponível em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor-master/`.
 **Critério de sucesso:** JSON LoD 3.2 com `summary`, `classifications`, `aggregates`, `diagnostics`; F1 ≥ 0.75 em ≥ 1 fixture — **stage gate para Fase 4** (DBSCAN só inicia depois). Debug visual operacional.
 
 **Detecção (Stage 1) — P2:**
 - [ ] `GeometricOps`: plane fitting via `g4.OrthogonalPlaneFit3` (ADR-13), face normals via `g4.MeshNormals`, building bbox
 - [ ] `VoxelGrid3D` — grid denso com cascata 4-testes usando `g4.IntrTriangle3Box3` (ADR-13); provenance via `grid[v].Elementos`
-- [ ] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` pós-processamento (ADR-14); chama `Debug.Emit()` internamente (Opção A)
-- [ ] **Instrumentação de debug em todos os passos** (ADR-16): `Scope("voxel-rasterize")`, `Scope("grow-exterior")`, `Scope("grow-interior")`, `Scope("grow-void")`, `Scope("fill-gaps")`, `Scope("classify")`, por elemento `Scope($"element-{GlobalId}")`
+- [ ] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` pós-processamento (ADR-14); chama `GeometryDebug.Voxels(...)` internamente (ADR-17)
+- [ ] **Instrumentação de debug em todos os passos** (ADR-17): `GeometryDebug.Voxels()` por fase (rasterize, growExterior, growInterior, growVoid, fillGaps); `GeometryDebug.Mesh()` por elemento classificado
 - [ ] `DetectionResult` (Envelope + ElementClassification[])
 - [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
 
-**Debug (projeto Debug) — ADR-16:**
-- [ ] `GltfDebugSink` via `SharpGLTF.Toolkit` — escreve `debug/{stage}/scene.gltf` por scope, com nodes nomeados por `GlobalId`
-- [ ] `ConsoleDebugSink` — só `Metric()` para logs
-- [ ] `CompositeDebugSink` — fan-out
-- [ ] `Palettes.cs` — Tab10 (categorias), Viridis (escala 0..1), constantes convencionais
-- [ ] `DebugShapeToGltf` — conversor de `DebugMesh`/`DebugTriangleSelection`/`DebugPointCloud`/`DebugVoxelSet`/`DebugRay`/`DebugSphere` para glTF nodes
-- [ ] Testes: NullSink overhead = 0; GltfSink produz schema válido
+**Debug (Geometry) — ADR-17:**
+- [ ] Implementar `GeometryDebug.Flush()` via `SharpGLTF.Toolkit` — serializa formas acumuladas para `%TEMP%\ifc-debug-output.gltf`
+- [ ] Adicionar `Voxels()` + `VoxelsShape` após integração do `feat/phase2-voxel`
+- [ ] `tools/debug-viewer/index.html` — HTML+three.js com polling de `%TEMP%\ifc-debug-output.gltf` a cada 1 segundo
 
 **LoD (projeto Lod) — ADR-15, subset mínimo:**
 - [ ] `ILodGenerator` interface + `LodOutput` record + `LodRegistry`
@@ -1458,7 +1438,7 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 **Saída mínima (Cli) — P3:**
 - [ ] `ReportBuilder` + `JsonReportWriter` — usa `ILodGenerator` por `--lod`; default `3.2` (schema v3 sem `facades` ainda — adicionado em P5)
-- [ ] `DebugVoxelCommand` (subcomando `debug-voxel`) — exporta voxels como PLY/OBJ/JSON colorido por status (exterior/interior/shell/ocupado) — **LoD 5 via debug** (ADR-15 + ADR-16)
+- [ ] `DebugVoxelCommand` (subcomando `debug-voxel`) — exporta voxels via `GeometryDebug.Voxels()` colorido por status (exterior/interior/shell/ocupado)
 - [ ] CSV ground-truth loader + Precisão/Recall/F1/Kappa
 - [ ] `System.CommandLine`: flags documentadas (§ CLI v2), `voxel` como padrão (ADR-14), `--debug*`, `--lod`
 - [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
@@ -1475,8 +1455,7 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 **Critério de sucesso:** F1 do RayCasting reportado em 2–3 modelos representativos; tabela comparativa Voxel vs RayCasting na dissertação; debug-viewer permite navegar elemento-a-elemento entre stages.
 
 **Baseline RayCasting:**
-- [ ] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `Debug.Emit()` internamente (Opção A)
-- [ ] Instrumentação de debug: `Scope("raycast")`, raios emitidos como `DebugRay` coloridos hit/escape
+- [ ] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `GeometryDebug.Line(...)` para raios hit/escape (ADR-17)
 - [ ] Testes unitários da estratégia
 - [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
 
@@ -1500,8 +1479,8 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 **Pré-requisito:** F1 do Stage 1 ≥ 0.75 (stage gate de ADR-12). Calibrar DBSCAN antes disso é desperdício.
 **Critério de sucesso:** facades coerentes por plano dominante em 3+ modelos; WWR calculado por fachada; LoD 3.2 completo (`summary`, `classifications`, `facades`, `aggregates`, `diagnostics`). Debug-viewer permite inspecionar Gauss sphere + clusters.
 
-- [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN sobre esfera de Gauss + QuikGraph para conectividade); chama `Debug.Emit()` internamente (Opção A)
-- [ ] **Instrumentação de debug crítica** (ADR-16): `Scope("dbscan")` com `DebugSphere` (Gauss sphere + pontos coloridos por cluster), `Scope("quikgraph")` com `DebugEdge` (grafo de adjacência), `Scope("facades")` com `DebugTriangleSelection` colorida por `facadeId`
+- [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN sobre esfera de Gauss + QuikGraph para conectividade); chama `GeometryDebug.Points(...)` / `GeometryDebug.Lines(...)` internamente (ADR-17)
+- [ ] **Instrumentação de debug crítica** (ADR-17): normais da esfera de Gauss como `GeometryDebug.Points()`, arestas do grafo de adjacência como `GeometryDebug.Lines()`, fachadas finais como `GeometryDebug.Triangles()` coloridas por `facadeId`
 - [ ] Calibração empírica de ε e minPoints em fixtures — **usando debug-viewer para visualização** (Camada B de ADR-16)
 - [ ] Opção: pré-filtro via `g4.NormalHistogram` (ADR-13) se ruído justificar
 - [ ] Completar `Lod32SemanticShellGenerator` com seção `facades` + WWR (ADR-15)
@@ -1589,8 +1568,8 @@ Ordem sugerida (passos pequenos, revisáveis):
 5. **`IElementFilter` + `DefaultElementFilter`** — ADR-05. Injetar no loader por construtor.
 6. **Loader v1** — agregação 2-níveis (ADR-09) com `Debug.Assert`; descarte de Element sem geometria com log warning.
 7. **`IIfcProductResolver`** — ADR-10. Ainda sem consumidor; preparado para Viewer e testes.
-8. **Debug contract** (ADR-16) — `IDebugSink` + `DebugShape` hierarchy + `DebugColor` + `NullDebugSink.Instance` em Core. Projeto `IfcEnvelopeMapper.Debug/` scaffolded (sem sinks ainda).
-9. **Testes-base** — scaffold `IfcEnvelopeMapper.Tests`, primeiros 5-8 testes unitários (BuildingElement, Face, Group, Context, NullDebugSink), 1 teste de integração com `duplex.ifc`.
+8. **Debug scaffold** (ADR-17) — `GeometryDebug` (#if DEBUG) em `IfcEnvelopeMapper.Geometry/Debug/`. Projeto `IfcEnvelopeMapper.Debug/` como placeholder.
+9. **Testes-base** — scaffold `IfcEnvelopeMapper.Tests`, primeiros 5-8 testes unitários (BuildingElement, Face, Group, Context), 1 teste de integração com `duplex.ifc`.
 10. **CI** — `.github/workflows/build.yml` rodando `dotnet test` no push.
 
 **Arquivo IFC de entrada:** `duplex.ifc` (em `data/models/`). Para fixture com agregador, produzir ou localizar um IFC pequeno com IfcCurtainWall.
