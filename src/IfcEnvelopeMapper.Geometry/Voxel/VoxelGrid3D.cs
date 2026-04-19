@@ -170,6 +170,7 @@ public sealed class VoxelGrid3D
             }
         }
     }
+
     public int GetRoomId(VoxelCoord c) => _roomIds[c.X, c.Y, c.Z];
 
     // Must run after GrowInterior. Each connected region of Interior voxels
@@ -211,6 +212,7 @@ public sealed class VoxelGrid3D
             }
         }
     }
+
     // Closes 1-voxel gaps in Occupied shells caused by imperfect IFC meshes.
     // A remaining Unknown voxel surrounded by 6+ face-adjacent Exterior voxels is a gap.
     public void FillGaps()
@@ -226,7 +228,10 @@ public sealed class VoxelGrid3D
                     for (var z = 0; z < NZ; z++)
                     {
                         var c = new VoxelCoord(x, y, z);
-                        if (this[c] != VoxelState.Unknown) continue;
+                        if (this[c] != VoxelState.Unknown)
+                        {
+                            continue;
+                        }
 
                         var exteriorNeighbors = Neighbors6(c)
                            .Count(n => this[n] == VoxelState.Exterior);
@@ -246,9 +251,12 @@ public sealed class VoxelGrid3D
     {
         VoxelCoord[] candidates =
         [
-            new(c.X - 1, c.Y, c.Z), new(c.X + 1, c.Y, c.Z),
-            new(c.X, c.Y - 1, c.Z), new(c.X, c.Y + 1, c.Z),
-            new(c.X, c.Y, c.Z - 1), new(c.X, c.Y, c.Z + 1)
+            new(c.X - 1, c.Y, c.Z),
+            new(c.X + 1, c.Y, c.Z),
+            new(c.X, c.Y - 1, c.Z),
+            new(c.X, c.Y + 1, c.Z),
+            new(c.X, c.Y, c.Z - 1),
+            new(c.X, c.Y, c.Z + 1)
         ];
         return candidates.Where(IsInBounds);
     }

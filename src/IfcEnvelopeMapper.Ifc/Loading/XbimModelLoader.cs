@@ -49,14 +49,20 @@ public sealed class XbimModelLoader : IModelLoader
 
             foreach (var ifcElem in model.Instances.OfType<IIfcBuildingElement>())
             {
-                if (!_filter.Include(ifcElem.GetType().Name)) continue;
+                if (!_filter.Include(ifcElem.GetType().Name))
+                {
+                    continue;
+                }
 
                 // Skip if this element is an included child — its parent will pick it up.
                 // (Not in the plan's pseudocode yet; avoids duplicating aggregated children.)
                 var isChildOfIncluded = ifcElem.Decomposes
                                                .Any(r => r.RelatingObject is IIfcBuildingElement parent
                                                          && _filter.Include(parent.GetType().Name));
-                if (isChildOfIncluded) continue;
+                if (isChildOfIncluded)
+                {
+                    continue;
+                }
 
                 var ctx = ExtractContext(ifcElem);
 
@@ -157,7 +163,10 @@ public sealed class XbimModelLoader : IModelLoader
         foreach (var instance in instances)
         {
             var geometry = context.ShapeGeometry(instance);
-            if (geometry is null || string.IsNullOrEmpty(geometry.ShapeData)) continue;
+            if (geometry is null || string.IsNullOrEmpty(geometry.ShapeData))
+            {
+                continue;
+            }
 
             using var ms = new MemoryStream(geometry.ToByteArray());
             using var br = new BinaryReader(ms);

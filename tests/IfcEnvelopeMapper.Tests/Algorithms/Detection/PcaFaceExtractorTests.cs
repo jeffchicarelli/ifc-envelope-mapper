@@ -49,7 +49,9 @@ public sealed class PcaFaceExtractorTests
 
         // Assert — each face of a 1x1x1 cube has area = 1.0 m²
         foreach (var face in faces)
+        {
             face.Area.Should().BeApproximately(1.0, precision: 1e-9);
+        }
     }
 
     [Fact]

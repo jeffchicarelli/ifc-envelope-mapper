@@ -173,7 +173,9 @@ public sealed class VoxelGrid3DTests
                 for (var z = 1; z <= 3; z++)
                 {
                     if (x == 1 || x == 3 || y == 1 || y == 3 || z == 1 || z == 3)
+                    {
                         grid[new VoxelCoord(x, y, z)] = VoxelState.Occupied;
+                    }
                 }
             }
         }
