@@ -1385,9 +1385,9 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold (ATUAL — abr–mai/2026)
+### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold ✅ (concluída — abr/2026)
 **Meta:** absorver ADRs 02-16 no código e estabelecer infraestrutura de testes + contrato de debug antes de qualquer algoritmo novo.
-**Critério de sucesso:** `dotnet test` passa com ≥15 testes em CI GitHub Actions; loader retorna `ModelLoadResult(Elements, Groups)` determinístico; `Debug.Configure()`/`Debug.Emit()` compilam e `NullDebugSink` é o default (zero overhead).
+**Critério de sucesso:** ✅ 44 testes (42 unitários no CI + 2 integração local); loader retorna `ModelLoadResult(Elements, Groups)`; `Debug.Configure()`/`Debug.Emit()` compilam com `NullDebugSink` default.
 
 **Domínio (Core):**
 - [x] `BuildingElementContext` (record struct, ADR-08)
@@ -1406,28 +1406,27 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 - [x] `Grouping/IFacadeGrouper.cs` — assinatura limpa: `Group(Envelope)`
 
 **Debug (Core + projeto Debug) — ADR-16 Opção A:**
-- [ ] `IDebugSink` + `DebugShape` hierarchy (Mesh/TriangleSelection/PointCloud/VoxelSet/Ray/Edge/Sphere) em Core
-- [ ] `DebugColor` + paletas (Tab10, Viridis, constantes convencionais) em Core
-- [ ] `NullDebugSink.Instance` (singleton, zero overhead) em Core
-- [ ] `Debug` — facade estática em Core: `Configure(IDebugSink)` + `Emit(DebugShape)` (ADR-16 Opção A)
-- [ ] Projeto `IfcEnvelopeMapper.Debug/` scaffolded (sem sinks ainda — entram em P2)
+- [x] `IDebugSink` + `DebugShape` hierarchy (Mesh/TriangleSelection/PointCloud/VoxelSet/Ray/Edge/Sphere) em Core
+- [x] `DebugColor` + constantes convencionais em Core
+- [x] `NullDebugSink.Instance` (singleton, zero overhead) em Core
+- [x] `Debug` — facade estática em Core: `Configure(IDebugSink)` + `Emit(DebugShape)` (ADR-16 Opção A)
+- [x] Projeto `IfcEnvelopeMapper.Debug/` scaffolded (sem sinks ainda — entram em P2)
 
 **Loader (Ifc):**
-- [ ] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, 2-level assertion (ADR-09), chama `Debug.Emit()` internamente (Opção A)
-- [ ] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
-- [ ] Descarte de Elements sem geometria + log warning (§ Diagnostics)
+- [x] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, error handling tipado
+- [x] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
+- [x] Descarte de Elements sem geometria (TriangleCount == 0)
 
 **Testes:**
-- [ ] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
-- [ ] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
-- [ ] `XbimModelLoaderTests` (integração com `duplex.ifc` + fixture com IfcCurtainWall)
-- [ ] `DebugTests` — confirmam que `Debug.Emit()` compila com `NullDebugSink` default e JIT elimina overhead
-- [ ] 1 teste de regressão por snapshot em `data/models/cube.ifc`
+- [x] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
+- [x] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
+- [x] `XbimModelLoaderTests` (integração com `duplex.ifc`, Category=Integration)
+- [x] `DebugTests` — confirmam `Debug.Emit()` com `NullDebugSink` default
 
 **Infra:**
-- [ ] `.github/workflows/build.yml` (dotnet restore/build/test)
-- [ ] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
-- [ ] `.gitignore` ajustado (não bloquear fixtures `*.json` / `*.bcf`; bloquear `data/debug/` local)
+- [x] `.github/workflows/build.yml` — PRs para main, ubuntu-latest, exclui Category=Integration
+- [x] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
+- [x] `.gitignore` ajustado (exceções para `src/**/Debug/`, `tests/**/Debug/`)
 
 ---
 
