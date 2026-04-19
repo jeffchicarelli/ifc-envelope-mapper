@@ -3,7 +3,7 @@ using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
 
-namespace IfcEnvelopeMapper.Tests.Detection;
+namespace IfcEnvelopeMapper.Tests.Core.Detection;
 
 public class ElementClassificationTests
 {

@@ -1,6 +1,6 @@
-using IfcEnvelopeMapper.Ifc;
+using IfcEnvelopeMapper.Ifc.Loading;
 
-namespace IfcEnvelopeMapper.Tests.Ifc;
+namespace IfcEnvelopeMapper.Tests.Ifc.Loading;
 
 [Trait("Category", "Integration")]
 public sealed class XbimModelLoaderTests

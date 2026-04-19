@@ -7,7 +7,7 @@ using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
 using Xbim.ModelGeometry.Scene;
 
-namespace IfcEnvelopeMapper.Ifc;
+namespace IfcEnvelopeMapper.Ifc.Loading;
 
 public sealed class XbimModelLoader : IModelLoader
 {
