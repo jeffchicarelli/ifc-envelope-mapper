@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
+  </ItemGroup>
+  
+  <ItemGroup>
     <ProjectReference Include="..\IfcEnvelopeMapper.Core\IfcEnvelopeMapper.Core.csproj" />
   </ItemGroup>
 

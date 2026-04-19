@@ -55,6 +55,12 @@ public sealed class VoxelGrid3D
             (c.Y + 0.5) * VoxelSize,
             (c.Z + 0.5) * VoxelSize);
 
+    public AxisAlignedBox3d GetVoxelBox(VoxelCoord c)
+    {
+        var min = Bounds.Min + new Vector3d(c.X * VoxelSize, c.Y * VoxelSize, c.Z * VoxelSize);
+        return new AxisAlignedBox3d(min, min + new Vector3d(VoxelSize, VoxelSize, VoxelSize));
+    }
+
     public void AddOccupant(VoxelCoord c, string globalId)
     {
         _occupants[c.X, c.Y, c.Z] ??= new HashSet<string>(StringComparer.Ordinal);
