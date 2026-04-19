@@ -67,7 +67,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
 
         return new DetectionResult(
             new Envelope(new DMesh3(), exteriorFaces),
-            classifications);
+            classifications.OrderBy(c => c.Element.GlobalId, StringComparer.Ordinal).ToList());
     }
 
     private VoxelGrid3D BuildGrid(IReadOnlyList<BuildingElement> elements)
