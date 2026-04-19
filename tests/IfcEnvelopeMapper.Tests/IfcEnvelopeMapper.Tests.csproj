@@ -24,6 +24,8 @@
     <ProjectReference Include="..\..\src\IfcEnvelopeMapper.Core\IfcEnvelopeMapper.Core.csproj" />
     <ProjectReference Include="..\..\src\IfcEnvelopeMapper.Ifc\IfcEnvelopeMapper.Ifc.csproj" />
     <ProjectReference Include="..\..\src\IfcEnvelopeMapper.Cli\IfcEnvelopeMapper.Cli.csproj" />
+    <ProjectReference Include="..\..\src\IfcEnvelopeMapper.Algorithms\IfcEnvelopeMapper.Algorithms.csproj" />
+    <ProjectReference Include="..\..\src\IfcEnvelopeMapper.Geometry\IfcEnvelopeMapper.Geometry.csproj" />
   </ItemGroup>
 
   <ItemGroup>

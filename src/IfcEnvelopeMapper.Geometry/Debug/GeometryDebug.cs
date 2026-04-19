@@ -1,5 +1,6 @@
 #if DEBUG
 using g4;
+using IfcEnvelopeMapper.Geometry.Voxel;
 
 namespace IfcEnvelopeMapper.Geometry.Debug;
 
@@ -20,6 +21,9 @@ public static class GeometryDebug
 
     public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds, string color = "#ff0000", string label = "") =>
         Add(new TrianglesShape(mesh, triangleIds.ToArray(), color, label));
+
+    public static void Voxels(VoxelGrid3D grid, IEnumerable<VoxelCoord> coords, string color = "#0000ff", string label = "") =>
+        Add(new VoxelsShape(grid, coords.ToArray(), color, label));
 
     public static void Points(IEnumerable<Vector3d> points, string color = "#ffff00", float radius = 0.05f, string label = "") =>
         Add(new PointsShape(points.ToArray(), radius, color, label));
@@ -65,6 +69,7 @@ public static class GeometryDebug
 internal abstract record DebugShape(string Color, string Label);
 internal sealed record MeshShape(DMesh3 Mesh, string Color, string Label)                                   : DebugShape(Color, Label);
 internal sealed record TrianglesShape(DMesh3 Mesh, int[] TriangleIds, string Color, string Label)           : DebugShape(Color, Label);
+internal sealed record VoxelsShape(VoxelGrid3D Grid, VoxelCoord[] Coords, string Color, string Label)       : DebugShape(Color, Label);
 internal sealed record PointsShape(Vector3d[] Points, float Radius, string Color, string Label)             : DebugShape(Color, Label);
 internal sealed record LineShape(Vector3d From, Vector3d To, float Width, string Color, string Label)       : DebugShape(Color, Label);
 internal sealed record LinesShape((Vector3d, Vector3d)[] Segments, float Width, string Color, string Label) : DebugShape(Color, Label);

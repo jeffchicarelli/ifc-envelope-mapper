@@ -11,7 +11,11 @@ public sealed class XbimModelLoaderTests
         while (dir is not null)
         {
             var candidate = Path.Combine(dir.FullName, "data", "models", "duplex.ifc");
-            if (File.Exists(candidate)) return candidate;
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
             dir = dir.Parent;
         }
 
