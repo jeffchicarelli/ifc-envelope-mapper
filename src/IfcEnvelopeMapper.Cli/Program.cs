@@ -1,5 +1,15 @@
+using System.Diagnostics;
+using IfcEnvelopeMapper.Algorithms.Detection;
 using IfcEnvelopeMapper.Core.Loading;
 using IfcEnvelopeMapper.Ifc.Loading;
+using Microsoft.Extensions.Logging;
+using Xbim.Common.Configuration;
+
+using var loggerFactory = LoggerFactory.Create(b =>
+    b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+
+XbimServices.Current.ConfigureServices(s =>
+    s.AddXbimToolkit(c => c.AddLoggerFactory(loggerFactory)));
 
 var ifcPath = FindUpward("data/models/duplex.ifc")
               ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
@@ -14,10 +24,23 @@ Console.WriteLine($"First with geometry: {first.IfcType} {first.GlobalId} " +
                   $"tris={first.Mesh.TriangleCount} " +
                   $"bbox=({first.Mesh.GetBounds().Min}) → ({first.Mesh.GetBounds().Max})");
 
-Console.WriteLine($"Loaded {model.Elements.Count} elements");
-foreach (var element in model.Elements)
+Console.WriteLine($"Elements loaded: {model.Elements.Count}");
+
+Console.WriteLine("Running VoxelFloodFillStrategy (voxelSize=0.5)...");
+var sw = Stopwatch.StartNew();
+var result = new VoxelFloodFillStrategy(voxelSize: 0.5).Detect(model.Elements);
+sw.Stop();
+
+var exterior = result.Classifications.Count(c => c.IsExterior);
+var interior = result.Classifications.Count(c => !c.IsExterior);
+
+Console.WriteLine($"Done in {sw.Elapsed.TotalSeconds:F2}s");
+Console.WriteLine($"  Exterior : {exterior}");
+Console.WriteLine($"  Interior : {interior}");
+Console.WriteLine();
+foreach (var c in result.Classifications.Where(c => c.IsExterior))
 {
-    Console.WriteLine($"  {element.IfcType}  {element.GlobalId}");
+    Console.WriteLine($"  [EXT] {c.Element.IfcType,-30} {c.Element.GlobalId}");
 }
 
 return;
