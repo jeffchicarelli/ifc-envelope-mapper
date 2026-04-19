@@ -1,7 +1,7 @@
 using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
 
-namespace IfcEnvelopeMapper.Ifc;
+namespace IfcEnvelopeMapper.Ifc.Resolver;
 
 public sealed class XbimIfcProductResolver : IIfcProductResolver, IDisposable
 {

@@ -1,6 +1,6 @@
 using IfcEnvelopeMapper.Core.Element;
 
-namespace IfcEnvelopeMapper.Tests.Element;
+namespace IfcEnvelopeMapper.Tests.Core.Element;
 
 public class BuildingElementContextTests
 {
