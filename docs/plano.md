@@ -491,7 +491,7 @@ IFC Model
     │  Implementadas (ADR-14 — superseda ADR-12 parcialmente):
     │
     │  Primária: VoxelFloodFillStrategy (van der Vaart 2022 / Liu 2021)
-    │    → discretiza modelo em voxel grid 3D (g4.IntrTriangle3Box3)
+    │    → discretiza modelo em voxel grid 3D (SAT triângulo-AABB — Akenine-Möller 1997)
     │    → cascata 4-testes de interseção voxel↔triângulo
     │    → 3 fases flood-fill: growExterior → growInterior → growVoid
     │    → FillGaps pós-processamento (robustez em meshes imperfeitas)
@@ -1064,7 +1064,7 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 | `Face.FittedPlane` via PCA (ADR-04) | `g4.OrthogonalPlaneFit3` |
 | Normais de mesh (ponderadas por área) | `g4.MeshNormals` |
 | Eigen genérico (se portar `dimensionality_estimate`) | `g4.SymmetricEigenSolver` |
-| Voxelização — interseção triângulo-AABB (P2+P3) | `g4.IntrTriangle3Box3` |
+| Voxelização — interseção triângulo-AABB (P2+P3) | SAT próprio (Akenine-Möller 1997) — `g4.IntrTriangle3Box3` ausente |
 | Esfera de Gauss pré-discretizada (P5, opcional) | `g4.NormalHistogram` |
 | BVH 3D de triângulos por mesh (ray casting P4) | `g4.DMeshAABBTree3` |
 | Queries AABB 3D sobre `BuildingElement` | Linear scan com AABB pre-filter |
@@ -1394,7 +1394,7 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 - [x] `Grouping/IFacadeGrouper.cs` — assinatura limpa: `Group(Envelope)`
 
 **Debug (Geometry) — ADR-17:**
-- [x] `GeometryDebug` (#if DEBUG) em `IfcEnvelopeMapper.Geometry/Debug/` — 9 métodos de primitivas geométricas (`Mesh`, `Triangles`, `Points`, `Line`, `Lines`, `Box`, `Plane`, `Sphere`, `Normal`)
+- [x] `GeometryDebug` (#if DEBUG) em `IfcEnvelopeMapper.Geometry/Debug/` — 10 métodos de primitivas geométricas (`Mesh`, `Triangles`, `Voxels`, `Points`, `Line`, `Lines`, `Box`, `Plane`, `Sphere`, `Normal`)
 - [x] Projeto `IfcEnvelopeMapper.Debug/` — placeholder para utilitários de serialização futura
 
 **Loader (Ifc):**
@@ -1421,15 +1421,16 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 **Detecção (Stage 1) — P2:**
 - [ ] `GeometricOps`: plane fitting via `g4.OrthogonalPlaneFit3` (ADR-13), face normals via `g4.MeshNormals`, building bbox
-- [ ] `VoxelGrid3D` — grid denso com cascata 4-testes usando `g4.IntrTriangle3Box3` (ADR-13); provenance via `grid[v].Elementos`
-- [ ] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` pós-processamento (ADR-14); chama `GeometryDebug.Voxels(...)` internamente (ADR-17)
-- [ ] **Instrumentação de debug em todos os passos** (ADR-17): `GeometryDebug.Voxels()` por fase (rasterize, growExterior, growInterior, growVoid, fillGaps); `GeometryDebug.Mesh()` por elemento classificado
-- [ ] `DetectionResult` (Envelope + ElementClassification[])
+- [x] `VoxelGrid3D` — grade 3D com estado por voxel + provenance de ocupantes; SAT triângulo-AABB próprio (Akenine-Möller 1997 — `g4.IntrTriangle3Box3` ausente em geometry4sharp)
+- [x] `PcaFaceExtractor : IFaceExtractor` — agrupamento por normal + distância + fit PCA via `OrthogonalPlaneFit3`
+- [x] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` (ADR-14); `PcaFaceExtractor` integrado para faces de elementos exteriores
+- [ ] **Instrumentação de debug** (ADR-17): `GeometryDebug.Voxels()` por fase; `GeometryDebug.Mesh()` por elemento classificado
+- [x] `DetectionResult` (Envelope + ElementClassification[]) — concluído em P1
 - [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
 
 **Debug (Geometry) — ADR-17:**
 - [ ] Implementar `GeometryDebug.Flush()` via `SharpGLTF.Toolkit` — serializa formas acumuladas para `%TEMP%\ifc-debug-output.gltf`
-- [ ] Adicionar `Voxels()` + `VoxelsShape` após integração do `feat/phase2-voxel`
+- [x] `Voxels()` + `VoxelsShape` adicionados após integração do `feat/phase2-voxel`
 - [ ] `tools/debug-viewer/index.html` — HTML+three.js com polling de `%TEMP%\ifc-debug-output.gltf` a cada 1 segundo
 
 **LoD (projeto Lod) — ADR-15, subset mínimo:**
