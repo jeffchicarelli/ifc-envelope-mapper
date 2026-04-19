@@ -2,6 +2,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
+using IfcEnvelopeMapper.Geometry.Debug;
 using IfcEnvelopeMapper.Geometry.Voxel;
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
@@ -27,13 +28,34 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
         var grid = BuildGrid(elements);
         Rasterize(grid, elements);
 
+#if DEBUG
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Occupied), "#ff880080", "rasterize");
+#endif
+
         grid.GrowExterior();
         grid.FillGaps();
+
+#if DEBUG
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Exterior), "#0055ff80", "exterior");
+#endif
+
         grid.GrowInterior();
+
+#if DEBUG
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Interior), "#ff000080", "interior");
+#endif
+
         grid.GrowVoid();
 
         var exteriorIds = FindExteriorIds(grid);
         var (classifications, exteriorFaces) = Classify(elements, exteriorIds);
+
+#if DEBUG
+        foreach (var c in classifications.Where(c => c.IsExterior))
+        {
+            GeometryDebug.Mesh(c.Element.Mesh, "#00ff0040", $"ext:{c.Element.IfcType}");
+        }
+#endif
 
         return new DetectionResult(
             new Envelope(new DMesh3(), exteriorFaces),
@@ -120,7 +142,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
 
                     // A shell voxel is exterior if at least one 26-neighbor is Exterior.
                     // 26-connectivity matches GrowExterior, so no shell voxel is missed.
-                    if (!grid.Neighbors26(coord).Any(n => grid[n] == VoxelState.Exterior))
+                    if (grid.Neighbors26(coord).All(n => grid[n] != VoxelState.Exterior))
                     {
                         continue;
                     }
@@ -148,7 +170,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
             var isExterior   = exteriorIds.Contains(element.GlobalId);
             var faces        = isExterior
                 ? _faceExtractor.Extract(element)
-                : (IReadOnlyList<Face>)Array.Empty<Face>();
+                : Array.Empty<Face>();
 
             classifications.Add(new ElementClassification(element, isExterior, faces));
 

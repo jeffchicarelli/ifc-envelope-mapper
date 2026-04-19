@@ -91,6 +91,23 @@ public sealed class VoxelGrid3D
         }
     }
 
+    public IEnumerable<VoxelCoord> VoxelsByState(VoxelState state)
+    {
+        for (var x = 0; x < NX; x++)
+        {
+            for (var y = 0; y < NY; y++)
+            {
+                for (var z = 0; z < NZ; z++)
+                {
+                    if (_states[x, y, z] == state)
+                    {
+                        yield return new VoxelCoord(x, y, z);
+                    }
+                }
+            }
+        }
+    }
+
     public IEnumerable<VoxelCoord> VoxelsInBbox(AxisAlignedBox3d box)
     {
         var min = WorldToVoxel(box.Min) ?? new VoxelCoord(0, 0, 0);
