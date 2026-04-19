@@ -1,9 +1,17 @@
+#define DEBUG
+#if RELEASE
+#undef DEBUG
+#endif
+
 using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
-using IfcEnvelopeMapper.Geometry.Debug;
 using IfcEnvelopeMapper.Geometry.Voxel;
+
+#if DEBUG
+using IfcEnvelopeMapper.Geometry.Debug;
+#endif
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
 

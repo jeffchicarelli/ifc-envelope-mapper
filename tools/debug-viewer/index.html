@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IFC Debug Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; color: #ccc; font-family: monospace; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #ui {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 8px 12px; background: #00000099; backdrop-filter: blur(4px);
+      z-index: 10;
+    }
+    button {
+      padding: 4px 10px; background: #2a2a3a; color: #ccc;
+      border: 1px solid #555; border-radius: 4px; cursor: pointer;
+      font-family: monospace; font-size: 12px;
+    }
+    button:hover { background: #3a3a4a; }
+    #status { font-size: 12px; color: #888; min-width: 160px; }
+    #layers { display: flex; gap: 6px; flex-wrap: wrap; }
+    .layer-btn { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+    .layer-btn.off { opacity: 0.35; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three":          "https://cdn.jsdelivr.net/npm/three@0.166/build/three.module.js",
+      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.166/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="ui">
+    <button id="openBtn">Open GLTF</button>
+    <button id="clearBtn">Clear</button>
+    <span id="status">No file loaded</span>
+    <div id="layers"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE              from 'three';
+    import { OrbitControls }       from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader }          from 'three/addons/loaders/GLTFLoader.js';
+
+    // ── Renderer ─────────────────────────────────────────────────────────────
+    const canvas   = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setClearColor(0x1a1a2e, 1);
+
+    // ── Scene ────────────────────────────────────────────────────────────────
+    const scene = new THREE.Scene();
+    scene.add(new THREE.GridHelper(100, 100, 0x333333, 0x222222));
+
+    // ── Camera + Controls ────────────────────────────────────────────────────
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 10000);
+    camera.position.set(20, 20, 20);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // ── Resize ───────────────────────────────────────────────────────────────
+    function resize() {
+      const w = innerWidth, h = innerHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── Render loop ──────────────────────────────────────────────────────────
+    renderer.setAnimationLoop(() => {
+      controls.update();
+      renderer.render(scene, camera);
+    });
+
+    // ── GLTF state ───────────────────────────────────────────────────────────
+    const loader     = new GLTFLoader();
+    const statusEl   = document.getElementById('status');
+    const layersEl   = document.getElementById('layers');
+    let   modelRoot  = null;
+    let   fileHandle = null;
+    let   lastMod    = null;
+
+    // ── Load from ArrayBuffer ────────────────────────────────────────────────
+    function loadBuffer(buf) {
+      loader.parse(buf, '', gltf => {
+        if (modelRoot) scene.remove(modelRoot);
+        modelRoot = gltf.scene;
+        scene.add(modelRoot);
+        rebuildLayers();
+        statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      }, err => {
+        statusEl.textContent = `Parse error: ${err}`;
+      });
+    }
+
+    // ── Poll file handle every second ────────────────────────────────────────
+    async function poll() {
+      if (!fileHandle) return;
+      try {
+        const file = await fileHandle.getFile();
+        if (file.lastModified === lastMod) return;
+        lastMod = file.lastModified;
+        loadBuffer(await file.arrayBuffer());
+      } catch (e) {
+        statusEl.textContent = `Read error: ${e.message}`;
+      }
+    }
+
+    // ── Layer toggle buttons ─────────────────────────────────────────────────
+    function rebuildLayers() {
+      layersEl.innerHTML = '';
+      if (!modelRoot) return;
+      for (const child of modelRoot.children) {
+        const btn = document.createElement('button');
+        btn.className   = 'layer-btn';
+        btn.textContent = child.name || 'unnamed';
+        btn.style.borderColor = getMeshColor(child);
+        btn.onclick = () => {
+          child.visible = !child.visible;
+          btn.classList.toggle('off', !child.visible);
+        };
+        layersEl.appendChild(btn);
+      }
+    }
+
+    function getMeshColor(node) {
+      let hex = '#888';
+      node.traverse(obj => {
+        if (obj.isMesh && obj.material?.color) {
+          const c = obj.material.color;
+          const r = Math.round(c.r * 255).toString(16).padStart(2, '0');
+          const g = Math.round(c.g * 255).toString(16).padStart(2, '0');
+          const b = Math.round(c.b * 255).toString(16).padStart(2, '0');
+          hex = `#${r}${g}${b}`;
+        }
+      });
+      return hex;
+    }
+
+    // ── Open button ──────────────────────────────────────────────────────────
+    document.getElementById('openBtn').onclick = async () => {
+      try {
+        [fileHandle] = await window.showOpenFilePicker({
+          types: [{ description: 'GLTF', accept: { 'model/gltf+json': ['.gltf'] } }]
+        });
+        lastMod = null;
+        setInterval(poll, 1000);
+        await poll();
+      } catch (e) {
+        if (e.name !== 'AbortError') statusEl.textContent = `Open error: ${e.message}`;
+      }
+    };
+
+    document.getElementById('clearBtn').onclick = () => {
+      if (modelRoot) { scene.remove(modelRoot); modelRoot = null; }
+      layersEl.innerHTML = '';
+      statusEl.textContent = 'Cleared';
+    };
+  </script>
+</body>
+</html>
