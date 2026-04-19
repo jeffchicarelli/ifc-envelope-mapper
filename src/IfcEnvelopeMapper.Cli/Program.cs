@@ -2,6 +2,14 @@ using System.Diagnostics;
 using IfcEnvelopeMapper.Algorithms.Detection;
 using IfcEnvelopeMapper.Core.Loading;
 using IfcEnvelopeMapper.Ifc.Loading;
+using Microsoft.Extensions.Logging;
+using Xbim.Common.Configuration;
+
+using var loggerFactory = LoggerFactory.Create(b =>
+    b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+
+XbimServices.Current.ConfigureServices(s =>
+    s.AddXbimToolkit(c => c.AddLoggerFactory(loggerFactory)));
 
 var ifcPath = FindUpward("data/models/duplex.ifc")
               ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
