@@ -2,6 +2,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
+using IfcEnvelopeMapper.Geometry.Operations;
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
 
@@ -56,7 +57,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
             foreach (var group in groups)
             {
                 var (ra, rb, rc) = GetVertices(mesh, group[0]);
-                var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+                var repNormal = GeometricOperations.TriangleNormal(ra, rb, rc);
                 var dot   = Math.Clamp(normal.Dot(repNormal), -1.0, 1.0);
                 var angle = Math.Acos(dot);
 
@@ -89,7 +90,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
     {
         var mesh = element.Mesh;
         var (ra, rb, rc) = GetVertices(mesh, group[0]);
-        var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+        var repNormal = GeometricOperations.TriangleNormal(ra, rb, rc);
         var subgroups = new List<List<int>>();
 
         // Step 3: subdivide by signed distance along the group's normal axis
@@ -141,9 +142,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
 
             var centroid = area > 1e-10 ? weightedCentroid / area : points[0];
 
-            // PCA plane fit: finds the best-fit plane through all vertex points
-            var fit   = new OrthogonalPlaneFit3(points);
-            var plane = new Plane3d(fit.Normal, fit.Origin);
+            var plane = GeometricOperations.FitPlane(points);
 
             yield return new Face(element, sub, plane, area, centroid);
         }
