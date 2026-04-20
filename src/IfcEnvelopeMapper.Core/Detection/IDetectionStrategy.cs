@@ -4,5 +4,5 @@ namespace IfcEnvelopeMapper.Core.Detection;
 
 public interface IDetectionStrategy
 {
-    DetectionResult Detect(IReadOnlyList<BuildingElement> elements);
+    DetectionResult Detect(IEnumerable<BuildingElement> elements);
 }

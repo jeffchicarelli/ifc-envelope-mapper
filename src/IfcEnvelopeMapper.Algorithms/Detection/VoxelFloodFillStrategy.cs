@@ -7,6 +7,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
+using IfcEnvelopeMapper.Geometry.Operations;
 using IfcEnvelopeMapper.Geometry.Voxel;
 
 #if DEBUG
@@ -26,15 +27,16 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
         _faceExtractor = faceExtractor ?? new PcaFaceExtractor();
     }
 
-    public DetectionResult Detect(IReadOnlyList<BuildingElement> elements)
+    public DetectionResult Detect(IEnumerable<BuildingElement> elements)
     {
-        if (elements.Count == 0)
+        var elementsList = elements.ToList();
+        if (elementsList.Count == 0)
         {
             return EmptyResult();
         }
 
-        var grid = BuildGrid(elements);
-        Rasterize(grid, elements);
+        var grid = BuildGrid(elementsList);
+        Rasterize(grid, elementsList);
 
 #if DEBUG
         GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Occupied), "#ff880080", "rasterize");
@@ -56,7 +58,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
         grid.GrowVoid();
 
         var exteriorIds = FindExteriorIds(grid);
-        var (classifications, exteriorFaces) = Classify(elements, exteriorIds);
+        var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
 
 #if DEBUG
         foreach (var c in classifications.Where(c => c.IsExterior))
@@ -70,13 +72,9 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
             classifications.OrderBy(c => c.Element.GlobalId, StringComparer.Ordinal).ToList());
     }
 
-    private VoxelGrid3D BuildGrid(IReadOnlyList<BuildingElement> elements)
+    private VoxelGrid3D BuildGrid(List<BuildingElement> elements)
     {
-        var bbox = elements[0].Mesh.GetBounds();
-        for (var i = 1; i < elements.Count; i++)
-        {
-            bbox.Contain(elements[i].Mesh.GetBounds());
-        }
+        var bbox = GeometricOperations.BoundingBox(elements);
 
         // Pad by 2*voxelSize so the corner voxel (0,0,0) is guaranteed outside the model.
         var pad = 2.0 * _voxelSize;
@@ -87,7 +85,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
         return new VoxelGrid3D(expanded, _voxelSize);
     }
 
-    private void Rasterize(VoxelGrid3D grid, IReadOnlyList<BuildingElement> elements)
+    private void Rasterize(VoxelGrid3D grid, List<BuildingElement> elements)
     {
         foreach (var element in elements)
         {
@@ -167,7 +165,7 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
     }
 
     private (List<ElementClassification>, List<Face>) Classify(
-        IReadOnlyList<BuildingElement> elements,
+        List<BuildingElement> elements,
         HashSet<string> exteriorIds)
     {
         var classifications = new List<ElementClassification>(elements.Count);
