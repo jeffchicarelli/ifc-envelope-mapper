@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using IfcEnvelopeMapper.Algorithms.Detection;
+using IfcEnvelopeMapper.Core.Evaluation;
 using IfcEnvelopeMapper.Core.Loading;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
+using Xbim.Ifc4.Interfaces;
 
 using var loggerFactory = LoggerFactory.Create(b =>
     b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -26,6 +28,56 @@ Console.WriteLine($"First with geometry: {first.IfcType} {first.GlobalId} " +
 
 Console.WriteLine($"Elements loaded: {model.Elements.Count}");
 
+// Ground truth generation — runs once, skipped if CSV already exists
+var gtPath = Path.Combine(
+    Path.GetDirectoryName(Path.GetDirectoryName(ifcPath))!,
+    "ground-truth", "duplex.csv");
+
+if (!File.Exists(gtPath))
+{
+    Console.WriteLine("Generating ground truth from IsExternal psets...");
+    var ifcTypeById = model.Elements.ToDictionary(
+        e => e.GlobalId,
+        e => e.IfcType,
+        StringComparer.Ordinal);
+
+    using var store = Xbim.Ifc.IfcStore.Open(ifcPath);
+    var lines = new List<string> { "GlobalId,IsExterior,Note" };
+
+    foreach (var entity in store.Instances.OfType<IIfcBuildingElement>())
+    {
+        var gid = entity.GlobalId.ToString();
+        if (!ifcTypeById.TryGetValue(gid, out var ifcType)) continue;
+
+        var props = entity.IsDefinedBy
+                          .Where(e => e is not null)
+                          .SelectMany(r =>
+                               (r.RelatingPropertyDefinition as IIfcPropertySet)?.HasProperties
+                               ?? Enumerable.Empty<IIfcProperty>())
+                          .OfType<IIfcPropertySingleValue>()
+                          .Where(p => p.Name == "IsExternal")
+                          .Select(p => p.NominalValue?.Value)
+                          .OfType<bool>()
+                          .ToList();
+
+        // Distinguish 'pset absent' (null) from 'pset present with false' (false).
+        bool? isExt = props.Count > 0 ? props[0] : null;
+
+        var value = isExt switch
+        {
+            true  => "true",
+            false => "false",
+            null  => "unknown",
+        };
+        var note = isExt.HasValue ? string.Empty : $"{ifcType} (auto)";
+
+        lines.Add($"{gid},{value},{note}");
+    }
+
+    File.WriteAllLines(gtPath, lines);
+    Console.WriteLine($"Ground truth: {gtPath} ({lines.Count - 1} records)");
+}
+
 Console.WriteLine("Running VoxelFloodFillStrategy (voxelSize=0.5)...");
 var sw = Stopwatch.StartNew();
 var result = new VoxelFloodFillStrategy(voxelSize: 0.5).Detect(model.Elements);
@@ -41,6 +93,24 @@ Console.WriteLine();
 foreach (var c in result.Classifications.Where(c => c.IsExterior))
 {
     Console.WriteLine($"  [EXT] {c.Element.IfcType,-30} {c.Element.GlobalId}");
+}
+
+// Evaluation against ground truth — van der Vaart (2022) counting + Ying et al. (2022) Precision/Recall.
+if (File.Exists(gtPath))
+{
+    var groundTruth = GroundTruthCsvReader.Read(gtPath);
+    var counts      = MetricsCalculator.Compute(result.Classifications, groundTruth);
+    var skipped     = result.Classifications.Count - counts.Total;
+
+    Console.WriteLine();
+    Console.WriteLine($"Evaluation vs {Path.GetFileName(gtPath)}:");
+    Console.WriteLine($"  TP={counts.TruePositives}  FP={counts.FalsePositives}  " +
+                      $"FN={counts.FalseNegatives}  TN={counts.TrueNegatives}");
+    Console.WriteLine($"  Precision = {Format(counts.Precision)}");
+    Console.WriteLine($"  Recall    = {Format(counts.Recall)}");
+    Console.WriteLine($"  (skipped {skipped} classifications with no ground-truth entry)");
+
+    static string Format(double v) => double.IsNaN(v) ? "—" : v.ToString("F3");
 }
 
 return;
