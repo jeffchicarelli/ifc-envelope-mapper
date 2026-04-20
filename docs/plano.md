@@ -20,8 +20,9 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 | **Fachada** *(facade)* | Região contínua da superfície exterior do envoltório, caracterizada por uma orientação dominante (vetor normal médio das faces convergentes). Fachada é artefato da superfície, não um agrupamento de elementos. Elementos IFC são *participantes* (relação muitos-para-muitos): um elemento de canto participa de duas fachadas. Inclui qualquer orientação — sem limiar angular arbitrário. Não existe no schema IFC; é inferida computacionalmente (ver `conceitos-fundamentais.md`). |
 | **Face** | Unidade atômica de superfície exterior: conjunto de triângulos de um elemento IFC que pertencem a um mesmo plano ajustado. Preserva rastreabilidade ao `BuildingElement` de origem. |
 | **Plano dominante** | Direção média de um grupo de normais detectado por DBSCAN sobre a esfera de Gauss. Base para o agrupamento de elementos em fachadas. |
-| **Ground truth** | Conjunto de rótulos de referência (elementos marcados como fachada / não-fachada) produzido por rotulação manual de especialistas AEC. Base para cálculo de Precisão, Recall e F1-score. |
-| **Precisão / Recall / F1** | Métricas de avaliação de classificação binária. Precisão: dos classificados como fachada, quantos realmente são? Recall: dos que são fachada, quantos foram encontrados? F1: média harmônica das duas. |
+| **Ground truth** | Conjunto de rótulos de referência (elementos marcados como fachada / não-fachada) produzido por rotulação manual de especialistas AEC. Base para contagens TP/FP/FN/TN e cálculo de Precisão e Recall. |
+| **TP / FP / FN / TN** | Contagens da matriz de confusão de classificação binária. TP (True Positive): classificados como exterior e realmente exteriores. FP (False Positive): classificados como exterior mas são interiores. FN (False Negative): exteriores não detectados. TN (True Negative): interiores corretamente identificados. Estilo de reporte seguindo van der Vaart (2022). |
+| **Precisão / Recall** | Métricas derivadas das contagens. Precisão = TP / (TP + FP): dos classificados como exterior, quantos realmente são. Recall = TP / (TP + FN): dos que são exterior, quantos foram encontrados. Definições conforme Ying et al. (2022, Eq. 12–13). F1 e Kappa foram descartados como métricas principais por não aparecerem nas referências canônicas — ver ADR-12 nota. |
 | **DBSCAN** | Density-Based Spatial Clustering of Applications with Noise — algoritmo de clustering sem número fixo de grupos. Usado para agrupar normais de faces na esfera de Gauss e detectar planos dominantes. |
 | **BVH** | Bounding Volume Hierarchy — estrutura de aceleração espacial para ray casting. |
 | **WWR** | Window-to-Wall Ratio — razão entre área de janelas e área total de parede por fachada. Métrica usada como prova de aplicabilidade do método. |
@@ -828,11 +829,11 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 ### ADR-07 — Viewer MVP default; Completo como stretch goal (revisado por ADR-12; possível absorção por ADR-16)
 
-**Decisão.** O entregável obrigatório do Viewer é o **MVP**: render 3D dos meshes coloridos por fachada, inspeção por elemento e filtro exterior/interior. **Edição manual de rotulação** e **export BCF** são *stretch goals* condicionais a stage gates (F1 do Stage 1 aceitável + tempo de cronograma). A versão anterior desta ADR tratava o Viewer Completo como obrigatório; ADR-12 reclassificou.
+**Decisão.** O entregável obrigatório do Viewer é o **MVP**: render 3D dos meshes coloridos por fachada, inspeção por elemento e filtro exterior/interior. **Edição manual de rotulação** e **export BCF** são *stretch goals* condicionais a stage gates (Precision/Recall do Stage 1 aceitáveis + tempo de cronograma). A versão anterior desta ADR tratava o Viewer Completo como obrigatório; ADR-12 reclassificou.
 
 **Motivo.** Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa. O MVP já satisfaz o critério #4 do TCC (≥4 ferramentas BIM) quando somado a Revit/ArchiCAD/FME/Solibri na validação. Edição + BCF entram apenas se houver folga após P1–P5.
 
-**Consequência.** Contingência documentada: se F1 < 0.75 até set/2026 ou se cronograma estiver apertado, o Viewer permanece em escopo MVP e BCF é gerado pela CLI (ADR-06). Stage gates detalhados continuam na seção Viewer (§ Viewer).
+**Consequência.** Contingência documentada: se Precision/Recall do Stage 1 forem insuficientes até set/2026 ou se cronograma estiver apertado, o Viewer permanece em escopo MVP e BCF é gerado pela CLI (ADR-06). Stage gates detalhados continuam na seção Viewer (§ Viewer).
 
 > **Possível absorção (decisão em Fase 7, ver ADR-17).** O sistema de debug adotado (ADR-17) produz um viewer HTML local em `tools/debug-viewer/` a partir da Fase 3. Se esse viewer evoluir para UX amigável a especialistas AEC, o Viewer Blazor MVP pode ser absorvido — elimina-se o Viewer como projeto separado, energia concentra no debug-viewer que serve duplo propósito (dev + end-user). A decisão é adiada para Fase 7; até lá, Viewer segue como stretch goal de ADR-07 revisado.
 
@@ -870,13 +871,13 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 ### ADR-12 — Escopo reduzido: 1 primária + 1 fallback + baseline, Stage 1 antes de Stage 2, Viewer MVP default
 
-**Decisão.** O método implementa **uma** estratégia primária (`RayCastingDetectionStrategy`, Ying 2022) e **uma** estratégia de fallback (`VoxelFloodFillStrategy`, van der Vaart 2022 / Liu 2021). `NormalsStrategy` é reduzida a baseline trivial de ~20 linhas, usada apenas para comparação no capítulo de Discussão; não é mais estratégia completa. O pipeline é serializado: Stage 1 (detecção + cálculo de F1 sobre ground truth) precede Stage 2 (agrupamento DBSCAN); Stage 2 não inicia até F1 do Stage 1 ser aceitável (gate ≥ 0.75 conforme critério do projeto). O Viewer entrega um MVP (render 3D + cores por fachada) como default; edição manual e export BCF (escopo do ADR-07 original) ficam como stretch goals sob stage gate.
+**Decisão.** O método implementa **uma** estratégia primária (`RayCastingDetectionStrategy`, Ying 2022) e **uma** estratégia de fallback (`VoxelFloodFillStrategy`, van der Vaart 2022 / Liu 2021). `NormalsStrategy` é reduzida a baseline trivial de ~20 linhas, usada apenas para comparação no capítulo de Discussão; não é mais estratégia completa. O pipeline é serializado: Stage 1 (detecção + avaliação por contagem TP/FP/FN/TN + Precision/Recall sobre ground truth) precede Stage 2 (agrupamento DBSCAN); Stage 2 não inicia até Precision/Recall do Stage 1 serem aceitáveis (threshold calibrado após primeira medição em P2). O Viewer entrega um MVP (render 3D + cores por fachada) como default; edição manual e export BCF (escopo do ADR-07 original) ficam como stretch goals sob stage gate.
 
 **Motivo.** (a) Prazo até abr/2027 não comporta três estratégias implementadas em paralelo; literatura (Ying 2022; van der Vaart 2022) sustenta RayCasting + Voxel como combinação suficiente e complementar. (b) DBSCAN depende criticamente da qualidade do Envelope; calibrar agrupamento antes de ter detecção confiável é desperdício de esforço. (c) Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa — MVP satisfaz o critério "≥4 ferramentas BIM" quando somado a Revit/ArchiCAD/FME/Solibri para validação.
 
 **Consequência.** ADR-07 é redefinido: Viewer MVP é o entregável obrigatório; Viewer Completo é condicional. A ordem das Fases muda: testes/CI (P1) → RayCasting ponta-a-ponta (P2) → JsonReportWriter (P3) → Voxel fallback (P4) → DBSCAN grouper (P5) → Viewer MVP (P6). A tabela comparativa das três estratégias permanece no plano como registro de alternativas investigadas — valor para Discussão e Ameaças à Validade.
 
-> **Nota:** ADR-12 é **superseda parcialmente por ADR-14** quanto à escolha de estratégias. Permanecem válidos: Stage 1 antes de Stage 2, gate F1 ≥ 0.75, Viewer MVP como default. A ordem de fases e o papel das estratégias foram redefinidos — ver ADR-14.
+> **Nota:** ADR-12 é **superseda parcialmente por ADR-14** quanto à escolha de estratégias. Permanecem válidos: Stage 1 antes de Stage 2, gate baseado em Precision/Recall aceitáveis (threshold calibrado em P2 — ver critério de P2), Viewer MVP como default. A ordem de fases e o papel das estratégias foram redefinidos — ver ADR-14. F1 e Kappa foram removidos do plano de avaliação após leitura das referências canônicas (van der Vaart 2022 usa contagens manuais; Ying 2022 usa apenas Precision/Recall).
 
 ### ADR-13 — Aproveitamento máximo da stack para matemática e indexação espacial
 
@@ -903,7 +904,7 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 
 ### ADR-14 — Consolidação: 1 primária (Voxel) + 1 baseline (RayCasting), Normais descartada
 
-**Superseda ADR-12** nos itens: (a) escolha da primária, (b) papel do RayCasting, (c) presença de `NormalsStrategy`. Mantém de ADR-12: Stage 1 antes de Stage 2, Viewer MVP como default, stage gate F1 ≥ 0.75.
+**Superseda ADR-12** nos itens: (a) escolha da primária, (b) papel do RayCasting, (c) presença de `NormalsStrategy`. Mantém de ADR-12: Stage 1 antes de Stage 2, Viewer MVP como default, stage gate baseado em Precision/Recall (thresholds calibrados após primeira medição em P2; F1/Kappa removidos — ver ADR-12 nota).
 
 **Decisão.** Estratégia de produção única: `VoxelFloodFillStrategy` (van der Vaart 2022 + extensões: cascata 4-testes, 3 fases flood-fill, `FillGaps`). `RayCastingStrategy` (Ying 2022) permanece implementada exclusivamente como baseline de comparação no capítulo de Resultados — não é usada em produção. `NormalsStrategy` é descartada completamente.
 
@@ -1009,9 +1010,14 @@ foreach (var facade in facades)
     "totalElements": 142,
     "exteriorElements": 38,
     "facadeCount": 4,
-    "precision": null,
-    "recall": null,
-    "f1": null
+    "evaluation": {
+      "truePositives": null,
+      "falsePositives": null,
+      "falseNegatives": null,
+      "trueNegatives": null,
+      "precision": null,
+      "recall": null
+    }
   },
   "classifications": [
     {
@@ -1060,7 +1066,7 @@ foreach (var facade in facades)
 }
 ```
 
-Quando `--ground-truth` é fornecido, `precision`, `recall` e `f1` são preenchidos automaticamente.
+Quando `--ground-truth` é fornecido, o bloco `evaluation` é preenchido automaticamente com contagens TP/FP/FN/TN + Precision e Recall derivados (sem F1, sem Kappa — ver ADR-12).
 
 **Bloco `aggregates`.** Produzido a partir de `ModelLoadResult.Groups` (ADR-11). Lista cada `BuildingElementGroup` com o conjunto de fachadas em que seus Elements participaram — útil para relatórios agrupados por cortina de vidro, escada, etc.
 
@@ -1074,7 +1080,7 @@ Segundo ponto de entrada: **ASP.NET Core Blazor Server + three.js**. Consome o m
 
 **MVP obrigatório:** render 3D colorido por fachada, filtro exterior/interior, inspeção por elemento (GlobalId, IfcType, `IIfcProductResolver`). Viewer **nunca re-executa o pipeline** — CLI = algoritmo automatizado, Viewer = revisão humana.
 
-**Stretch goal** (condicional a F1 ≥ 0.75 e folga de cronograma): edição manual de rotulação + export BCF (ADR-06). Stage gate bloqueante: Viewer não inicia até pipeline produzir JSON válido (P3 concluído).
+**Stretch goal** (condicional a Precision/Recall do Stage 1 aceitáveis e folga de cronograma): edição manual de rotulação + export BCF (ADR-06). Stage gate bloqueante: Viewer não inicia até pipeline produzir JSON válido (P3 concluído).
 
 **Trabalhos Futuros (fora do escopo):** ingestão de BCF externo para re-calibrar algoritmo; re-execução sobre regiões editadas; histórico de rotulações; multi-usuário.
 
@@ -1092,7 +1098,7 @@ Opções globais:
                                                  Válidos: 0.0,0.2,1.0,1.2,2.2,3.2,4.0,4.1,4.2
   --output        <path>                         Diretório de saída         [padrão: ./output]
   --format        <json|bcf|both>                Formato primário (LoD 3.2) [padrão: json]
-  --ground-truth  <labels.csv>                   Calcula Precisão/Recall/F1 (opcional)
+  --ground-truth  <labels.csv>                   Calcula contagens TP/FP/FN/TN + Precision/Recall (opcional)
   --verbose                                      Logging detalhado
 
 Opções específicas por estratégia:
@@ -1191,9 +1197,9 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ### Fase 2 — P2: Validação da detecção + debug visual (01/mai → 12/jun/2026) · 6 semanas
 
-**Meta:** Pipeline de detecção validado quantitativamente (F1 ≥ 0.75) e inspecionável visualmente no debug-viewer.
+**Meta:** Pipeline de detecção validado quantitativamente e inspecionável visualmente no debug-viewer.
 **Referência canônica:** van der Vaart (2022) — IFC_BuildingEnvExtractor. Código-fonte em `Ferramentas/BuildingEnvExtractor/`.
-**Critério de sucesso:** F1 ≥ 0.75 em ≥ 1 fixture IFC — **stage gate para Fase 4** (DBSCAN só inicia depois); voxels inspecionáveis no debug-viewer por fase (rasterize → exterior → interior → void).
+**Critério de sucesso:** contagens TP/FP/FN/TN + Precision/Recall reportadas para ≥ 1 fixture IFC, com thresholds de aceitação calibrados após a primeira medição — **stage gate para P4.3 e P5**; P4.1 e P4.2 podem iniciar independentemente do gate; voxels inspecionáveis no debug-viewer por fase (rasterize → exterior → interior → void). Escolha metodológica: avaliação por contagem (estilo van der Vaart 2022) + Precision/Recall (Ying 2022); F1 e Kappa foram descartados por não aparecerem nas referências canônicas (ver ADR-12 nota).
 
 **Detecção (Stage 1) — P2:**
 - [ ] `GeometricOps`: plane fitting via `g4.OrthogonalPlaneFit3` (ADR-13), face normals via `g4.MeshNormals`, building bbox
@@ -1211,7 +1217,7 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 **Validação quantitativa (Cli) — P2:**
 - [ ] Smoke test: `detect duplex.ifc` → console com contagem de elementos exterior/interior
-- [ ] CSV ground-truth loader + Precisão/Recall/F1/Kappa
+- [ ] CSV ground-truth loader + contagens TP/FP/FN/TN + Precision/Recall
 - [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
 
 **Marco paralelo — Spike Viewer (1 semana, mai/2026):**
@@ -1223,8 +1229,8 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ### Fase 3 — P3: RayCasting baseline + JSON + BCF (01/jul → 05/ago/2026) · 5 semanas
 
-**Meta:** F1 do Voxel vs RayCasting tabelado; output JSON e BCF mínimo operacionais.
-**Critério de sucesso:** tabela comparativa Voxel vs RayCasting (F1/Precision/Recall) em ≥ 2 modelos; `detect duplex.ifc` → `report.json` + `report.bcf` mínimo.
+**Meta:** comparação Voxel vs RayCasting tabelada (contagens + Precision/Recall); output JSON e BCF mínimo operacionais.
+**Critério de sucesso:** tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) em ≥ 2 modelos; `detect duplex.ifc` → `report.json` + `report.bcf` mínimo.
 **Nota:** julho mais lento (Etapa 2 — 16/jun–07/jul); priorizar P3.0 + início de P3.1 nesse período.
 
 **P3.0 — Infra (1 semana)**
@@ -1237,7 +1243,7 @@ Ref: Ying et al. (2022); ADR-14.
 - [ ] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `GeometryDebug.Line(...)` para raios hit/escape (ADR-17)
 - [ ] Testes unitários
 - [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
-- [ ] Tabela comparativa Voxel vs RayCasting (F1/Precision/Recall) para a dissertação
+- [ ] Tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) para a dissertação
 
 **P3.2 — JSON + BCF mínimo (2 semanas)**
 Ref: ADR-06 (BCF); ADR-15 (LoD output).
@@ -1277,7 +1283,7 @@ Ref: Biljecki et al. (2016); ADR-15.
 ### Fase 5 — P5: Agrupamento em fachadas — DbscanFacadeGrouper (04/set → 29/out/2026) · 8 semanas
 
 **Meta:** `Facade[]` completo com DBSCAN + QuikGraph.
-**Pré-requisito:** F1 do Stage 1 ≥ 0.75 (stage gate de ADR-12). Calibrar DBSCAN antes disso é desperdício.
+**Pré-requisito:** Precision/Recall do Stage 1 aceitáveis — gate de P2 (thresholds calibrados após primeira medição; ver ADR-12). Calibrar DBSCAN antes de detecção confiável é desperdício.
 **Critério de sucesso:** facades coerentes por plano dominante em 3+ modelos; WWR calculado por fachada. Debug-viewer permite inspecionar Gauss sphere + clusters.
 
 - [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN sobre esfera de Gauss + QuikGraph para conectividade); chama `GeometryDebug.Points(...)` / `GeometryDebug.Lines(...)` internamente (ADR-17)
@@ -1327,12 +1333,12 @@ Nesta fase, avaliar o estado do `tools/debug-viewer/` (entregue em Fase 3):
 
 ### Fase 8 — Ground Truth & Avaliação Experimental (out/2026 – jan/2027, paralela)
 **Meta:** validar o método contra rótulos manuais de especialistas.
-**Critério de sucesso:** tabela Precisão/Recall/F1/Kappa por modelo e por tipologia; ≥75% concordância entre especialistas.
+**Critério de sucesso:** tabela com contagens TP/FP/FN/TN + Precision/Recall por modelo e por tipologia; ≥75% de concordância simples (percent agreement) entre especialistas na rotulação.
 
 - [ ] Selecionar 3–5 modelos IFC de tipologias diferentes (planta retangular, L, curva/irregular)
 - [ ] Protocolo de rotulação (critérios, ferramenta — provavelmente Viewer MVP, resolução de divergências)
 - [ ] Recrutar 5+ profissionais AEC
-- [ ] Kappa de Cohen para concordância
+- [ ] Percent agreement entre especialistas (contagem direta de rótulos concordantes / total)
 - [ ] Tabela de resultados para a dissertação
 
 ---
