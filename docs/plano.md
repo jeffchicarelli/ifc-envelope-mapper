@@ -186,10 +186,7 @@ IfcEnvelopeMapper/
 │   │   │   └── IFacadeGrouper.cs
 │   │   [deps: geometry4Sharp]
 │   │
-│   ├── IfcEnvelopeMapper.Geometry/       ← operações geométricas stateless
-│   │   ├── GeometricOps.cs
-│   │   └── Debug/
-│   │       └── GeometryDebug.cs         ← debugger geométrico (#if DEBUG) (ADR-17)
+│   ├── IfcEnvelopeMapper.Geometry/       ← operações geométricas stateless (Operations, Primitives, Voxel)
 │   │   [deps: Core, geometry4Sharp, NetTopologySuite]
 │   │
 │   ├── IfcEnvelopeMapper.Ifc/            ← integração xBIM
@@ -230,9 +227,13 @@ IfcEnvelopeMapper/
 │   │       └── Lod42MergedSurfaces.cs
 │   │   [deps: Core, Geometry, NetTopologySuite]
 │   │
-│   ├── IfcEnvelopeMapper.Debug/          ← reservado para utilitários opcionais (e.g. glTF writer)
-│   │   └── Placeholder.cs               ← GeometryDebug lives in IfcEnvelopeMapper.Geometry
-│   │   [deps: Core]
+│   ├── IfcEnvelopeMapper.Debug/          ← debug geométrico (ADR-17)
+│   │   ├── GeometryDebug.cs              ← API de instrumentação (Camada A) — [Conditional("DEBUG")]
+│   │   ├── GltfSerializer.cs             ← serializa shapes para C:\temp\ifc-debug-output.glb
+│   │   ├── DebugViewerServer.cs          ← HttpListener loopback em :5173 (Camada B)
+│   │   ├── DebugShape.cs                 ← Mesh/Lines/Points records
+│   │   └── IfcTypePalette.cs             ← cores por IfcType
+│   │   [deps: Core, Geometry, SharpGLTF.Toolkit]
 │   │
 │   ├── IfcEnvelopeMapper.Cli/            ← entry point, output writers
 │   │   ├── Commands/
@@ -956,6 +957,17 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 - Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente.
 - `SharpGLTF.Toolkit` permanece na stack — será usado em `Flush()` na Fase 2.
 - **ADR-07 pode ser absorvida.** Se o debug-viewer (Camada B) evoluir para UX amigável a end-user, Viewer MVP Blazor pode ser absorvido. Decisão adiada para Fase 5.
+
+**Atualização (2026-04-21) — implementação real diverge em 4 pontos.**
+
+- **Projeto.** `GeometryDebug` migrou de `IfcEnvelopeMapper.Geometry/Debug/` para **projeto próprio `IfcEnvelopeMapper.Debug/`** (promovido de placeholder a projeto real). Motivo: isola `SharpGLTF.Toolkit` e `System.Net.HttpListener` fora do núcleo geométrico.
+- **Eliminação em Release.** `#if DEBUG` substituído por **`[Conditional("DEBUG")]` por método público**. Mesmo efeito (compiler strip), mas aplicado no call site do chamador em vez de no corpo da API — zero `#if DEBUG` em `VoxelFloodFillStrategy.Detect(...)` ou `Program.cs`.
+- **Formato do arquivo.** `%TEMP%\ifc-debug-output.gltf` substituído por **`C:\temp\ifc-debug-output.glb`**. GLB (binário auto-contido) em vez de glTF (JSON + .bin separados) porque o viewer precisa carregar tudo em um único fetch. `C:\temp\` em vez de `%TEMP%` porque Chromium bloqueia `AppData\Local\Temp` para a File System Access API (fallback histórico) e porque a CLI já roda de `C:\temp\` sob Google Drive Streaming.
+- **Arquitetura em duas camadas.**
+  - **Camada A — `GeometryDebug` + `GltfSerializer` (obrigatória).** API de instrumentação chamada do algoritmo; acumula shapes e serializa para o GLB via atomic write (`.tmp` + `File.Move`) a cada chamada. É o que torna possível "pausar num breakpoint e o arquivo já está escrito".
+  - **Camada B — `DebugViewerServer` + `tools/debug-viewer/index.html` (debug only).** `HttpListener` loopback-only em `:5173`; serve o HTML e o GLB corrente. O browser faz polling a 200ms. Inicia automaticamente no static ctor de `GeometryDebug`; `[Conditional("DEBUG")]` garante zero custo em Release.
+
+**Limitação conhecida.** O `HttpListener` roda como thread gerenciada dentro do processo da CLI. Quando o debugger do .NET pausa num breakpoint com política default (`Suspend: All`), todas as threads congelam — incluindo o servidor — e o viewer não atualiza até a próxima F10. Paliativo: trocar política do breakpoint para `Suspend: Thread` no Rider/VS. Solução definitiva planejada: extrair `DebugViewerServer` para processo OS separado via `Process.Start` (próximo PR na Fase 2).
 
 ---
 
