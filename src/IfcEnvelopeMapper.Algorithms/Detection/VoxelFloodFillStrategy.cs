@@ -2,7 +2,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
-using IfcEnvelopeMapper.Geometry.Debug;
+using IfcEnvelopeMapper.Debug;
 using IfcEnvelopeMapper.Geometry.Operations;
 using IfcEnvelopeMapper.Geometry.Voxel;
 
@@ -110,8 +110,6 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
 
                     grid.AddOccupant(coord, element.GlobalId);
                 }
-
-                GeometryDebug.Voxels(grid, grid.VoxelsInBbox(triBbox), "#ff880020", "rasterize");
             }
         }
     }

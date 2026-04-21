@@ -1,12 +1,11 @@
 using System.Numerics;
 using g4;
-using IfcEnvelopeMapper.Geometry.Debug;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
 using SharpGLTF.Scenes;
 
-namespace IfcEnvelopeMapper.Geometry.Serialization;
+namespace IfcEnvelopeMapper.Debug;
 
 // Encodes a list of DebugShape payloads into a single GLB file.
 //
@@ -22,21 +21,93 @@ internal static class GltfSerializer
 {
     public static void Flush(List<DebugShape> shapes, string outputPath)
     {
-        var scene = new SceneBuilder();
+        // Group by (kind, label, color) so repeated calls to GeometryDebug with the
+        // same identity merge into one GLB mesh → one layer button in the viewer.
+        // Different colors under the same label stay split (the SharpGLTF/three.js
+        // loader will auto-suffix), which is the user-chosen policy: same color =
+        // semantically the same layer; a color change implies intent.
+        //
+        // Insertion order is preserved (Dictionary<TKey,TValue> iterates in insertion
+        // order in the current runtime), so layer buttons appear in the order the
+        // first call with each (label, color) arrived.
+        var meshes  = new Dictionary<(string label, string color), DMesh3>();
+        var lines   = new Dictionary<(string label, string color), List<(Vector3d From, Vector3d To)>>();
+        var points  = new Dictionary<(string label, string color), List<Vector3d>>();
+
         foreach (var shape in shapes)
         {
             switch (shape)
             {
-                case MeshShape m:   AddMesh(scene, m.Mesh, m.Color, m.Label);       break;
-                case LinesShape l:  AddLines(scene, l.Segments, l.Color, l.Label);  break;
-                case PointsShape p: AddPoints(scene, p.Points, p.Color, p.Label);   break;
+                case MeshShape m:
+                {
+                    var key = (m.Label, m.Color);
+                    if (!meshes.TryGetValue(key, out var acc))
+                    {
+                        acc = new DMesh3();
+                        meshes[key] = acc;
+                    }
+                    AppendMesh(acc, m.Mesh);
+                    break;
+                }
+                case LinesShape l:
+                {
+                    var key = (l.Label, l.Color);
+                    if (!lines.TryGetValue(key, out var acc))
+                    {
+                        acc = new List<(Vector3d, Vector3d)>();
+                        lines[key] = acc;
+                    }
+                    acc.AddRange(l.Segments);
+                    break;
+                }
+                case PointsShape p:
+                {
+                    var key = (p.Label, p.Color);
+                    if (!points.TryGetValue(key, out var acc))
+                    {
+                        acc = new List<Vector3d>();
+                        points[key] = acc;
+                    }
+                    acc.AddRange(p.Points);
+                    break;
+                }
             }
         }
+
+        var scene = new SceneBuilder();
+        foreach (var ((label, color), mesh)   in meshes) AddMesh(scene, mesh, color, label);
+        foreach (var ((label, color), segs)   in lines)  AddLines(scene, segs.ToArray(), color, label);
+        foreach (var ((label, color), pts)    in points) AddPoints(scene, pts.ToArray(), color, label);
 
         // SaveGLB writes a single self-contained binary file (JSON + buffers embedded).
         // SaveGLTF would produce a split .gltf + .bin pair, which the browser-based
         // debug-viewer cannot resolve via showOpenFilePicker (only one file per pick).
         scene.ToGltf2().SaveGLB(outputPath);
+    }
+
+    // Concatenates `source` triangles into `dest`. Uses the VertexCount offset
+    // trick (safe because GeometricPrimitives.* meshes have no deletion holes —
+    // vertex IDs are dense 0..VertexCount-1). Matches the pattern in
+    // GeometryDebug.Merge.
+    private static void AppendMesh(DMesh3 dest, DMesh3 source)
+    {
+        var offset = dest.VertexCount;
+        for (var vid = 0; vid < source.MaxVertexID; vid++)
+        {
+            if (source.IsVertex(vid))
+            {
+                dest.AppendVertex(source.GetVertex(vid));
+            }
+        }
+        for (var tid = 0; tid < source.MaxTriangleID; tid++)
+        {
+            if (!source.IsTriangle(tid))
+            {
+                continue;
+            }
+            var t = source.GetTriangle(tid);
+            dest.AppendTriangle(new Index3i(t.a + offset, t.b + offset, t.c + offset));
+        }
     }
 
     // ── Color helpers ────────────────────────────────────────────────────────

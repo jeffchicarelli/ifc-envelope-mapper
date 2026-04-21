@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace IfcEnvelopeMapper.Geometry.Debug;
+namespace IfcEnvelopeMapper.Debug;
 
 // Minimal HttpListener-based static server for the debug-viewer.
 // Serves the viewer HTML at / and the current GLB at /ifc-debug-output.glb.

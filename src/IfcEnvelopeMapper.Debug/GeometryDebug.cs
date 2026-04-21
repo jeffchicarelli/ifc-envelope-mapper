@@ -1,10 +1,9 @@
 using System.Diagnostics;
 using g4;
 using IfcEnvelopeMapper.Geometry.Primitives;
-using IfcEnvelopeMapper.Geometry.Serialization;
 using IfcEnvelopeMapper.Geometry.Voxel;
 
-namespace IfcEnvelopeMapper.Geometry.Debug;
+namespace IfcEnvelopeMapper.Debug;
 
 // Geometric debugger for algorithm development.
 // Each method appends a shape and immediately flushes to C:\temp\ifc-debug-output.glb.
@@ -31,16 +30,18 @@ public static class GeometryDebug
     private static readonly List<DebugShape> _shapes = new();
 
     // Static constructor runs once per AppDomain on first member touch.
+    //
+    // No Debugger.IsAttached gate: [Conditional("DEBUG")] on every public API
+    // already ensures Release builds have zero call sites, so the static ctor
+    // never fires and no port is bound. In Debug builds — `dotnet run`,
+    // `dotnet test`, VS F5, Rider Debug alike — the viewer starts on first
+    // touch. One source of truth; no #if DEBUG anywhere else.
+    //
     // Wrapped in try/catch: type-initializer exceptions are sticky — they
     // permanently brick the type for the process lifetime. A failed viewer
     // start shouldn't take the ability to log shapes down with it.
     static GeometryDebug()
     {
-        if (!Debugger.IsAttached)
-        {
-            return;
-        }
-
         try
         {
             var viewerHtml = FindUpward("tools/debug-viewer/index.html");

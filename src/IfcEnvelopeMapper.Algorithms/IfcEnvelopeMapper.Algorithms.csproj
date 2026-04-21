@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\IfcEnvelopeMapper.Core\IfcEnvelopeMapper.Core.csproj" />
     <ProjectReference Include="..\IfcEnvelopeMapper.Geometry\IfcEnvelopeMapper.Geometry.csproj" />
+    <ProjectReference Include="..\IfcEnvelopeMapper.Debug\IfcEnvelopeMapper.Debug.csproj" />
   </ItemGroup>
 
 </Project>

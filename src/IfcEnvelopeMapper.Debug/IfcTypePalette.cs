@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Geometry.Debug;
+namespace IfcEnvelopeMapper.Debug;
 
 // Semantic color palette for debug visualization, keyed by IFC entity type.
 // Loosely follows the Solibri / BIMcollab convention: warm tones for envelope
