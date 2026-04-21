@@ -10,13 +10,19 @@ namespace IfcEnvelopeMapper.Geometry.Debug;
 // (it polls the file every second) to inspect the current geometric state.
 public static class GeometryDebug
 {
+    // %TEMP% (AppData\Local\Temp) is blocked by Chromium's File System Access API
+    // as a "system folder", so the debug-viewer cannot open it. C:\temp is also
+    // where the CLI runs from (Google Drive Streaming native-DLL workaround).
     private static readonly string OutputPath =
-        Path.Combine(Path.GetTempPath(), "ifc-debug-output.gltf");
+        Path.Combine(@"C:\temp", "ifc-debug-output.glb");
 
     private static readonly List<DebugShape> _shapes = new();
 
     public static void Mesh(DMesh3 mesh, string color = "#ff0000", string label = "") =>
         Add(new MeshShape(mesh, color, label));
+
+    public static void Meshes(IEnumerable<DMesh3> meshes, string color = "#cccccc", string label = "") =>
+        Add(new MeshesShape(meshes.ToArray(), color, label));
 
     public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds, string color = "#ff0000", string label = "") =>
         Add(new TrianglesShape(mesh, triangleIds.ToArray(), color, label));

@@ -35,24 +35,30 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
             return EmptyResult();
         }
 
+#if DEBUG
+        foreach (var group in elementsList.GroupBy(e => e.IfcType))
+        {
+            GeometryDebug.Meshes(group.Select(e => e.Mesh), IfcTypePalette.For(group.Key), group.Key);
+        }
+#endif
         var grid = BuildGrid(elementsList);
         Rasterize(grid, elementsList);
 
 #if DEBUG
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Occupied), "#ff880080", "rasterize");
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Occupied), "#ff880020", "rasterize");
 #endif
 
         grid.GrowExterior();
         grid.FillGaps();
 
 #if DEBUG
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Exterior), "#0055ff80", "exterior");
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Exterior), "#0055ff20", "exterior");
 #endif
 
         grid.GrowInterior();
 
 #if DEBUG
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Interior), "#ff000080", "interior");
+        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Interior), "#ff000020", "interior");
 #endif
 
         grid.GrowVoid();
@@ -61,10 +67,10 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
         var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
 
 #if DEBUG
-        foreach (var c in classifications.Where(c => c.IsExterior))
-        {
-            GeometryDebug.Mesh(c.Element.Mesh, "#00ff0040", $"ext:{c.Element.IfcType}");
-        }
+        // foreach (var c in classifications.Where(c => c.IsExterior))
+        // {
+        //     GeometryDebug.Mesh(c.Element.Mesh, "#00ff00c0", $"ext:{c.Element.IfcType}");
+        // }
 #endif
 
         return new DetectionResult(

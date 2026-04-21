@@ -5,6 +5,7 @@ namespace IfcEnvelopeMapper.Geometry.Debug;
 
 internal abstract record DebugShape(string Color, string Label);
 internal sealed record MeshShape(DMesh3 Mesh, string Color, string Label)                                         : DebugShape(Color, Label);
+internal sealed record MeshesShape(DMesh3[] Meshes, string Color, string Label)                                    : DebugShape(Color, Label);
 internal sealed record TrianglesShape(DMesh3 Mesh, int[] TriangleIds, string Color, string Label)                 : DebugShape(Color, Label);
 internal sealed record VoxelsShape(VoxelGrid3D Grid, VoxelCoord[] Coords, string Color, string Label)             : DebugShape(Color, Label);
 internal sealed record PointsShape(Vector3d[] Points, float Radius, string Color, string Label)                   : DebugShape(Color, Label);

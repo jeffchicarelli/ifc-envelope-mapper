@@ -18,7 +18,10 @@ internal static class GltfSerializer
             AddShape(scene, shape);
         }
 
-        scene.ToGltf2().SaveGLTF(outputPath);
+        // SaveGLB writes a single self-contained binary file (JSON + buffers embedded).
+        // SaveGLTF would produce a split .gltf + .bin pair, which the browser-based
+        // debug-viewer cannot resolve via showOpenFilePicker (only one file per pick).
+        scene.ToGltf2().SaveGLB(outputPath);
     }
 
     private static void AddShape(SceneBuilder scene, DebugShape shape)
@@ -26,6 +29,7 @@ internal static class GltfSerializer
         switch (shape)
         {
             case MeshShape m:      AddMesh(scene, m.Mesh, m.Color, m.Label);                                          break;
+            case MeshesShape ms:   AddMeshes(scene, ms.Meshes, ms.Color, ms.Label);                                  break;
             case TrianglesShape t: AddTriangles(scene, t.Mesh, t.TriangleIds, t.Color, t.Label);                      break;
             case VoxelsShape v:    AddVoxels(scene, v.Grid, v.Coords, v.Color, v.Label);                              break;
             case PointsShape p:    AddPoints(scene, p.Points, p.Color, p.Label);                                      break;
@@ -81,6 +85,30 @@ internal static class GltfSerializer
 
             var t = mesh.GetTriangle(tid);
             prim.AddTriangle(Vp(mesh.GetVertex(t.a)), Vp(mesh.GetVertex(t.b)), Vp(mesh.GetVertex(t.c)));
+        }
+
+        scene.AddRigidMesh(mb, Matrix4x4.Identity);
+    }
+
+    // Batches many meshes into a single MeshBuilder → one scene node → one layer button.
+    // Avoids flooding the viewer UI with N identical buttons when emitting a per-group layer.
+    private static void AddMeshes(SceneBuilder scene, DMesh3[] meshes, string color, string label)
+    {
+        var mb   = new MeshBuilder<VertexPosition>(label);
+        var prim = mb.UsePrimitive(MakeMaterial(color, label));
+
+        foreach (var mesh in meshes)
+        {
+            for (var tid = 0; tid < mesh.TriangleCount; tid++)
+            {
+                if (!mesh.IsTriangle(tid))
+                {
+                    continue;
+                }
+
+                var t = mesh.GetTriangle(tid);
+                prim.AddTriangle(Vp(mesh.GetVertex(t.a)), Vp(mesh.GetVertex(t.b)), Vp(mesh.GetVertex(t.c)));
+            }
         }
 
         scene.AddRigidMesh(mb, Matrix4x4.Identity);
