@@ -118,7 +118,13 @@ public sealed class DebugViewerServer : IDisposable
         var bytes = await File.ReadAllBytesAsync(path);
         ctx.Response.ContentType   = contentType;
         ctx.Response.ContentLength64 = bytes.Length;
-        ctx.Response.Headers["Last-Modified"] = File.GetLastWriteTimeUtc(path).ToString("R");
+        // Ticks (100ns resolution) instead of RFC 1123 ("R", 1-second resolution).
+        // Two flushes within the same calendar second would otherwise produce
+        // identical Last-Modified values, and the viewer's `if (mod === lastMod)`
+        // short-circuit would silently swallow the second update. The viewer does
+        // a plain string compare — not a date parse — so the non-standard format
+        // is safe here.
+        ctx.Response.Headers["Last-Modified"] = File.GetLastWriteTimeUtc(path).Ticks.ToString();
         ctx.Response.Headers["Cache-Control"] = "no-store";
         await ctx.Response.OutputStream.WriteAsync(bytes);
     }

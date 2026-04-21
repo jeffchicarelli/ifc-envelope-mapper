@@ -82,7 +82,15 @@ internal static class GltfSerializer
         // SaveGLB writes a single self-contained binary file (JSON + buffers embedded).
         // SaveGLTF would produce a split .gltf + .bin pair, which the browser-based
         // debug-viewer cannot resolve via showOpenFilePicker (only one file per pick).
-        scene.ToGltf2().SaveGLB(outputPath);
+        //
+        // Atomic-write pattern: write to .tmp, then rename. File.Move within one
+        // filesystem is an inode swap — the OS sees either the old file or the new
+        // file, never a half-written one. The viewer polls every 1s; without this,
+        // a fetch landing mid-SaveGLB reads a truncated GLB, loader.parse hangs,
+        // and the status stays on "Starting…" indefinitely.
+        var tmpPath = outputPath + ".tmp";
+        scene.ToGltf2().SaveGLB(tmpPath);
+        File.Move(tmpPath, outputPath, overwrite: true);
     }
 
     // Concatenates `source` triangles into `dest`. Uses the VertexCount offset

@@ -44,8 +44,21 @@ public static class GeometryDebug
     {
         try
         {
-            var viewerHtml = FindUpward("tools/debug-viewer/index.html");
-            if (viewerHtml is null)
+            // Discovery order:
+            //  1) Next to the DLL (AppContext.BaseDirectory) — the csproj's
+            //     <Content Include="tools/debug-viewer/**"> copies the HTML
+            //     there on every build/publish, so this is the steady-state
+            //     path for both Rider Debug runs and deployed binaries.
+            //  2) FindUpward from CWD — legacy fallback for oddball launchers
+            //     (plain "dotnet run" with unusual CWD, test hosts, etc.)
+            //     where the Content copy didn't happen or can't be reached.
+            var viewerHtml = Path.Combine(AppContext.BaseDirectory, "debug-viewer", "index.html");
+            if (!File.Exists(viewerHtml))
+            {
+                viewerHtml = FindUpward("tools/debug-viewer/index.html");
+            }
+
+            if (viewerHtml is null || !File.Exists(viewerHtml))
             {
                 return;
             }
@@ -62,57 +75,79 @@ public static class GeometryDebug
     // ── High-level shape API (all [Conditional("DEBUG")]) ───────────────────
 
     [Conditional("DEBUG")]
-    public static void Mesh(DMesh3 mesh, string color = "#ff0000", string label = "") =>
+    public static void Mesh(DMesh3 mesh, string color = "#ff0000", string label = "")
+    {
         Add(new MeshShape(mesh, color, label));
+    }
 
     // Batched: collapses N meshes into one MeshShape so the viewer shows one
     // layer per call (not N identical buttons when emitting a per-group layer).
     [Conditional("DEBUG")]
-    public static void Meshes(IEnumerable<DMesh3> meshes, string color = "#cccccc", string label = "") =>
+    public static void Meshes(IEnumerable<DMesh3> meshes, string color = "#cccccc", string label = "")
+    {
         Add(new MeshShape(Merge(meshes), color, label));
+    }
 
     // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
     [Conditional("DEBUG")]
     public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds,
-                                  string color = "#ff0000", string label = "") =>
+                                  string color = "#ff0000", string label = "")
+    {
         Add(new MeshShape(ExtractTriangles(mesh, triangleIds), color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Voxels(VoxelGrid3D grid, IEnumerable<VoxelCoord> coords,
-                               string color = "#0000ff", string label = "") =>
+                               string color = "#0000ff", string label = "")
+    {
         Add(new MeshShape(GeometricPrimitives.VoxelCubes(grid, coords, shrinkFactor: 0.25), color, label));
+    }
 
     [Conditional("DEBUG")]
-    public static void Points(IEnumerable<Vector3d> points, string color = "#ffff00", string label = "") =>
+    public static void Points(IEnumerable<Vector3d> points, string color = "#ffff00", string label = "")
+    {
         Add(new PointsShape(points.ToArray(), color, label));
+    }
 
     [Conditional("DEBUG")]
-    public static void Line(Vector3d from, Vector3d to, string color = "#ffffff", string label = "") =>
+    public static void Line(Vector3d from, Vector3d to, string color = "#ffffff", string label = "")
+    {
         Add(new LinesShape([(from, to)], color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Lines(IEnumerable<(Vector3d From, Vector3d To)> segments,
-                              string color = "#ffffff", string label = "") =>
+                              string color = "#ffffff", string label = "")
+    {
         Add(new LinesShape(segments.ToArray(), color, label));
+    }
 
     [Conditional("DEBUG")]
-    public static void Box(AxisAlignedBox3d box, string color = "#00ffff", string label = "") =>
+    public static void Box(AxisAlignedBox3d box, string color = "#00ffff", string label = "")
+    {
         Add(new LinesShape(GeometricPrimitives.BoxWireframe(box).ToArray(), color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Plane(Plane3d plane, double displaySize = 1.0,
-                              string color = "#00ff00", string label = "") =>
+                              string color = "#00ff00", string label = "")
+    {
         Add(new MeshShape(GeometricPrimitives.PlaneQuad(plane, displaySize), color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Sphere(Vector3d center, double radius,
-                               string color = "#ff00ff", string label = "") =>
+                               string color = "#ff00ff", string label = "")
+    {
         Add(new MeshShape(GeometricPrimitives.Sphere(center, radius), color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Normal(Vector3d origin, Vector3d direction, double length = 0.5,
-                               string color = "#ffff00", string label = "") =>
+                               string color = "#ffff00", string label = "")
+    {
         Add(new LinesShape([(origin, origin + direction * length)], color, label));
+    }
 
     [Conditional("DEBUG")]
     public static void Clear()
@@ -143,16 +178,19 @@ public static class GeometryDebug
                     merged.AppendVertex(m.GetVertex(vid));
                 }
             }
+
             for (var tid = 0; tid < m.MaxTriangleID; tid++)
             {
                 if (!m.IsTriangle(tid))
                 {
                     continue;
                 }
+
                 var t = m.GetTriangle(tid);
                 merged.AppendTriangle(new Index3i(t.a + offset, t.b + offset, t.c + offset));
             }
         }
+
         return merged;
     }
 
@@ -165,12 +203,14 @@ public static class GeometryDebug
             {
                 continue;
             }
+
             var t  = source.GetTriangle(tid);
             var a  = mesh.AppendVertex(source.GetVertex(t.a));
             var b  = mesh.AppendVertex(source.GetVertex(t.b));
             var c  = mesh.AppendVertex(source.GetVertex(t.c));
             mesh.AppendTriangle(new Index3i(a, b, c));
         }
+
         return mesh;
     }
 
@@ -188,8 +228,10 @@ public static class GeometryDebug
             {
                 return candidate;
             }
+
             dir = dir.Parent;
         }
+
         return null;
     }
 }

@@ -146,7 +146,11 @@
       });
     }
 
-    // ── Poll the server every second for the current GLB ─────────────────────
+    // ── Poll the server every 200ms for the current GLB ─────────────────────
+    // Faster than human F10 cadence in a debugger, so stepping past a
+    // GeometryDebug.* call shows the new state before you reach the next line.
+    // Cheap in the common case: localhost fetch + Last-Modified string compare;
+    // the expensive loader.parse only runs when the header actually changes.
     async function poll() {
       try {
         const res = await fetch(GLB_URL, { cache: 'no-store' });
@@ -208,7 +212,7 @@
     // ── Start polling immediately ────────────────────────────────────────────
     // No file picker, no permissions — the CLI serves the GLB over HTTP from
     // the same origin that served this page (see DebugViewerServer.cs).
-    setInterval(poll, 1000);
+    setInterval(poll, 200);
     poll();
 
     document.getElementById('clearBtn').onclick = () => {

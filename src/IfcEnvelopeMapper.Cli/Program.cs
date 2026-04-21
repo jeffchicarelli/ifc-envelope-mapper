@@ -2,10 +2,19 @@ using System.Diagnostics;
 using IfcEnvelopeMapper.Algorithms.Detection;
 using IfcEnvelopeMapper.Core.Evaluation;
 using IfcEnvelopeMapper.Core.Loading;
+using IfcEnvelopeMapper.Debug;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
 using Xbim.Ifc4.Interfaces;
+
+// Start the debug viewer server NOW (before IFC loading or anything that might
+// throw), not lazily on the first GeometryDebug.* call deep inside Detect.
+// Clear() triggers GeometryDebug's static ctor — which binds port 5173 — and
+// writes an empty GLB so the viewer has something to serve on first poll.
+// [Conditional("DEBUG")] strips this call at Release compile time, so Release
+// CLI runs never touch the port.
+GeometryDebug.Clear();
 
 using var loggerFactory = LoggerFactory.Create(b =>
     b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -15,8 +24,6 @@ XbimServices.Current.ConfigureServices(s =>
 
 var ifcPath = FindUpward("data/models/duplex.ifc")
               ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
-
-// Debug viewer auto-starts from GeometryDebug's static ctor (iff debugger attached).
 
 Console.WriteLine($"Opening: {ifcPath}");
 
