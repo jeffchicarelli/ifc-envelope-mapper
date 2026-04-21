@@ -1,12 +1,12 @@
-#if DEBUG
 using System.Net;
 
-namespace IfcEnvelopeMapper.Cli;
+namespace IfcEnvelopeMapper.Geometry.Debug;
 
 // Minimal HttpListener-based static server for the debug-viewer.
 // Serves the viewer HTML at / and the current GLB at /ifc-debug-output.glb.
 // Loopback-only binding avoids the Windows Defender firewall prompt.
-internal sealed class DebugViewerServer : IDisposable
+// Lives in Geometry.Debug (not CLI) so test projects can start it from a fixture.
+public sealed class DebugViewerServer : IDisposable
 {
     private readonly HttpListener _listener;
     private readonly string _viewerHtmlPath;
@@ -129,4 +129,3 @@ internal sealed class DebugViewerServer : IDisposable
         _listener.Close();
     }
 }
-#endif

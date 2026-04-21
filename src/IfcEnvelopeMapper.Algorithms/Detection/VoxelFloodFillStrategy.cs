@@ -1,18 +1,10 @@
-#define DEBUG
-#if RELEASE
-#undef DEBUG
-#endif
-
 using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
+using IfcEnvelopeMapper.Geometry.Debug;
 using IfcEnvelopeMapper.Geometry.Operations;
 using IfcEnvelopeMapper.Geometry.Voxel;
-
-#if DEBUG
-using IfcEnvelopeMapper.Geometry.Debug;
-#endif
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
 
@@ -35,43 +27,29 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
             return EmptyResult();
         }
 
-#if DEBUG
+        // GeometryDebug.* calls below are [Conditional("DEBUG")] — stripped at
+        // compile time in Release, free in Debug. No #if wrappers needed.
         foreach (var group in elementsList.GroupBy(e => e.IfcType))
         {
             GeometryDebug.Meshes(group.Select(e => e.Mesh), IfcTypePalette.For(group.Key), group.Key);
         }
-#endif
+
         var grid = BuildGrid(elementsList);
         Rasterize(grid, elementsList);
-
-#if DEBUG
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Occupied), "#ff880020", "rasterize");
-#endif
 
         grid.GrowExterior();
         grid.FillGaps();
 
-#if DEBUG
         GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Exterior), "#0055ff20", "exterior");
-#endif
 
         grid.GrowInterior();
 
-#if DEBUG
         GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Interior), "#ff000020", "interior");
-#endif
 
         grid.GrowVoid();
 
         var exteriorIds = FindExteriorIds(grid);
         var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
-
-#if DEBUG
-        // foreach (var c in classifications.Where(c => c.IsExterior))
-        // {
-        //     GeometryDebug.Mesh(c.Element.Mesh, "#00ff00c0", $"ext:{c.Element.IfcType}");
-        // }
-#endif
 
         return new DetectionResult(
             new Envelope(new DMesh3(), exteriorFaces),
@@ -132,6 +110,8 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
 
                     grid.AddOccupant(coord, element.GlobalId);
                 }
+
+                GeometryDebug.Voxels(grid, grid.VoxelsInBbox(triBbox), "#ff880020", "rasterize");
             }
         }
     }

@@ -16,6 +16,8 @@ XbimServices.Current.ConfigureServices(s =>
 var ifcPath = FindUpward("data/models/duplex.ifc")
               ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
 
+// Debug viewer auto-starts from GeometryDebug's static ctor (iff debugger attached).
+
 Console.WriteLine($"Opening: {ifcPath}");
 
 IModelLoader loader = new XbimModelLoader();
@@ -112,6 +114,12 @@ if (File.Exists(gtPath))
 
     static string Format(double v) => double.IsNaN(v) ? "—" : v.ToString("F3");
 }
+
+#if DEBUG
+Console.WriteLine();
+Console.WriteLine("Debug viewer still serving. Press any key to exit...");
+Console.ReadKey();
+#endif
 
 return;
 
