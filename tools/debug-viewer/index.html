@@ -5,7 +5,7 @@
   <title>IFC Debug Viewer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1a1a2e; color: #ccc; font-family: monospace; overflow: hidden; }
+    body { background: #e8ecf0; color: #222; font-family: monospace; overflow: hidden; }
     canvas { display: block; width: 100vw; height: 100vh; }
     #ui {
       position: fixed; top: 0; left: 0; right: 0;
@@ -14,15 +14,16 @@
       z-index: 10;
     }
     button {
-      padding: 4px 10px; background: #2a2a3a; color: #ccc;
-      border: 1px solid #555; border-radius: 4px; cursor: pointer;
+      padding: 4px 10px; background: #f5f5f5; color: #222;
+      border: 1px solid #888; border-radius: 4px; cursor: pointer;
       font-family: monospace; font-size: 12px;
     }
-    button:hover { background: #3a3a4a; }
-    #status { font-size: 12px; color: #888; min-width: 160px; }
+    button:hover { background: #ffffff; }
+    #status { font-size: 12px; color: #ddd; min-width: 160px; }
     #layers { display: flex; gap: 6px; flex-wrap: wrap; }
     .layer-btn { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
-    .layer-btn.off { opacity: 0.35; }
+    .layer-btn.wire { background: #3a3a4a; font-style: italic; }
+    .layer-btn.off  { opacity: 0.35; }
   </style>
   <script type="importmap">
   {
@@ -36,9 +37,8 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="ui">
-    <button id="openBtn">Open GLTF</button>
     <button id="clearBtn">Clear</button>
-    <span id="status">No file loaded</span>
+    <span id="status">Starting…</span>
     <div id="layers"></div>
   </div>
 
@@ -51,11 +51,19 @@
     const canvas   = document.getElementById('canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(devicePixelRatio);
-    renderer.setClearColor(0x1a1a2e, 1);
+    renderer.setClearColor(0xe8ecf0, 1);
 
     // ── Scene ────────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
-    scene.add(new THREE.GridHelper(100, 100, 0x333333, 0x222222));
+    scene.add(new THREE.GridHelper(100, 100, 0x999999, 0xbbbbbb));
+
+    // ── Lights ───────────────────────────────────────────────────────────────
+    // BIM-viewer convention: hemisphere (sky/ground) + directional key light.
+    // Gives surfaces readable shading without any post-processing.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x888899, 0.8));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    keyLight.position.set(1, 2, 1.5);
+    scene.add(keyLight);
 
     // ── Camera + Controls ────────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 10000);
@@ -81,18 +89,22 @@
     });
 
     // ── GLTF state ───────────────────────────────────────────────────────────
-    const loader     = new GLTFLoader();
-    const statusEl   = document.getElementById('status');
-    const layersEl   = document.getElementById('layers');
-    let   modelRoot  = null;
-    let   fileHandle = null;
-    let   lastMod    = null;
+    const loader    = new GLTFLoader();
+    const statusEl  = document.getElementById('status');
+    const layersEl  = document.getElementById('layers');
+    let   modelRoot = null;
+    let   lastMod   = null;
+    const GLB_URL   = '/ifc-debug-output.glb';
 
     // ── Load from ArrayBuffer ────────────────────────────────────────────────
     function loadBuffer(buf) {
       loader.parse(buf, '', gltf => {
         if (modelRoot) scene.remove(modelRoot);
         modelRoot = gltf.scene;
+        // IFC coordinates are Z-up; three.js is Y-up. Rotate -90° around X
+        // so vertical building axis points up in the viewer.
+        modelRoot.rotation.x = -Math.PI / 2;
+        upgradeMaterials(modelRoot);
         scene.add(modelRoot);
         rebuildLayers();
         statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
@@ -101,20 +113,62 @@
       });
     }
 
-    // ── Poll file handle every second ────────────────────────────────────────
+    // ── BIM-viewer material upgrade ──────────────────────────────────────────
+    // The GLB ships unlit (SharpGLTF WithUnlitShader) with no vertex normals.
+    // We need lit shading + edge overlay to actually read geometry — the look
+    // Solibri / BIMcollab / xeokit converge on. Done client-side so the
+    // serializer stays simple.
+    function upgradeMaterials(root) {
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+
+        obj.geometry.computeVertexNormals();
+
+        const old = obj.material;
+        const color   = old.color   ? old.color.clone() : new THREE.Color(0xcccccc);
+        const opacity = old.opacity ?? 1;
+        obj.material = new THREE.MeshLambertMaterial({
+          color, opacity,
+          transparent: opacity < 1,
+          side:        THREE.DoubleSide,
+          flatShading: true,
+        });
+        if (old.dispose) old.dispose();
+
+        // Edge overlay — 30° crease threshold picks up real corners,
+        // ignores triangulation seams inside flat faces.
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(obj.geometry, 30),
+          new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
+        );
+        edges.userData.isEdgeOverlay = true;
+        obj.add(edges);
+      });
+    }
+
+    // ── Poll the server every 200ms for the current GLB ─────────────────────
+    // Faster than human F10 cadence in a debugger, so stepping past a
+    // GeometryDebug.* call shows the new state before you reach the next line.
+    // Cheap in the common case: localhost fetch + Last-Modified string compare;
+    // the expensive loader.parse only runs when the header actually changes.
     async function poll() {
-      if (!fileHandle) return;
       try {
-        const file = await fileHandle.getFile();
-        if (file.lastModified === lastMod) return;
-        lastMod = file.lastModified;
-        loadBuffer(await file.arrayBuffer());
+        const res = await fetch(GLB_URL, { cache: 'no-store' });
+        if (!res.ok) {
+          statusEl.textContent = `Server returned ${res.status}`;
+          return;
+        }
+        const mod = res.headers.get('Last-Modified');
+        if (mod === lastMod) return;
+        lastMod = mod;
+        loadBuffer(await res.arrayBuffer());
       } catch (e) {
-        statusEl.textContent = `Read error: ${e.message}`;
+        statusEl.textContent = `Fetch error: ${e.message}`;
       }
     }
 
     // ── Layer toggle buttons ─────────────────────────────────────────────────
+    // Per-layer 3-state cycle: solid (default) → wireframe → hidden → solid.
     function rebuildLayers() {
       layersEl.innerHTML = '';
       if (!modelRoot) return;
@@ -123,9 +177,19 @@
         btn.className   = 'layer-btn';
         btn.textContent = child.name || 'unnamed';
         btn.style.borderColor = getMeshColor(child);
+
+        let state = 0; // 0 = solid, 1 = wireframe, 2 = hidden
         btn.onclick = () => {
-          child.visible = !child.visible;
-          btn.classList.toggle('off', !child.visible);
+          state = (state + 1) % 3;
+          child.visible = state !== 2;
+          child.traverse(obj => {
+            if (obj.isMesh && obj.material) obj.material.wireframe = (state === 1);
+            // Hide edge overlay in wireframe mode — the wireframe already
+            // draws every triangle edge, keeping the overlay double-draws.
+            if (obj.userData.isEdgeOverlay) obj.visible = (state === 0);
+          });
+          btn.classList.toggle('wire', state === 1);
+          btn.classList.toggle('off',  state === 2);
         };
         layersEl.appendChild(btn);
       }
@@ -145,23 +209,16 @@
       return hex;
     }
 
-    // ── Open button ──────────────────────────────────────────────────────────
-    document.getElementById('openBtn').onclick = async () => {
-      try {
-        [fileHandle] = await window.showOpenFilePicker({
-          types: [{ description: 'GLTF', accept: { 'model/gltf+json': ['.gltf'] } }]
-        });
-        lastMod = null;
-        setInterval(poll, 1000);
-        await poll();
-      } catch (e) {
-        if (e.name !== 'AbortError') statusEl.textContent = `Open error: ${e.message}`;
-      }
-    };
+    // ── Start polling immediately ────────────────────────────────────────────
+    // No file picker, no permissions — the CLI serves the GLB over HTTP from
+    // the same origin that served this page (see DebugViewerServer.cs).
+    setInterval(poll, 200);
+    poll();
 
     document.getElementById('clearBtn').onclick = () => {
       if (modelRoot) { scene.remove(modelRoot); modelRoot = null; }
       layersEl.innerHTML = '';
+      lastMod = null;
       statusEl.textContent = 'Cleared';
     };
   </script>

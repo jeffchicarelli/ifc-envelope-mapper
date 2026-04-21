@@ -7,7 +7,25 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\IfcEnvelopeMapper.Core\IfcEnvelopeMapper.Core.csproj" />
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IfcEnvelopeMapper.Geometry\IfcEnvelopeMapper.Geometry.csproj" />
+  </ItemGroup>
+
+  <!--
+    Copy the debug-viewer HTML next to the DLL on build and publish. Flows
+    transitively: any project referencing this one (e.g. Cli, Tests) gets
+    debug-viewer/index.html in its own output too. Makes GeometryDebug's viewer
+    discovery location-agnostic — no more FindUpward-from-CWD gymnastics.
+    Link flattens the repo path (../../tools/debug-viewer/) to just debug-viewer/.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\tools\debug-viewer\**\*.*" Link="debug-viewer\%(RecursiveDir)%(FileName)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>
