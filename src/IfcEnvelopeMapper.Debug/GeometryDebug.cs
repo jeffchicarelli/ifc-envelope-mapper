@@ -9,15 +9,18 @@ namespace IfcEnvelopeMapper.Debug;
 // Each method appends a shape and immediately flushes to C:\temp\ifc-debug-output.glb.
 // Place an IDE breakpoint on the line after the call — the file is already written
 // by the time execution pauses. Open http://localhost:5173/ in a browser (the
-// viewer polls the GLB file every second) to inspect the current geometric state.
+// viewer polls the GLB file 5×/second) to inspect the current geometric state.
 //
 // Call-site semantics:
 //   • [Conditional("DEBUG")] on every public method means any caller compiled
 //     without the DEBUG symbol has the call stripped at compile time (no IL
 //     instruction emitted). Release builds pay zero cost — no wrappers needed.
-//   • The static constructor auto-starts the HTTP viewer iff a debugger is
-//     attached. CI (`dotnet test`, no debugger) skips it: no port binding.
-//     VS F5 or "Debug Test" attaches → viewer starts once per AppDomain.
+//   • The static constructor spawns the viewer HTTP server as a SEPARATE OS
+//     process (IfcEnvelopeMapper.DebugServer.exe). This isolates the server
+//     from the .NET debugger attached to this process: breakpoints freeze
+//     managed threads in-process but have no authority over the helper's
+//     scheduler, so the browser keeps getting responses while the CLI is
+//     paused.
 public static class GeometryDebug
 {
     // %TEMP% (AppData\Local\Temp) is blocked by Chromium's File System Access
@@ -29,42 +32,91 @@ public static class GeometryDebug
 
     private static readonly List<DebugShape> _shapes = new();
 
+    // Handle to the out-of-process HTTP viewer server. Kept at type scope so the
+    // ProcessExit handler can terminate it when the CLI shuts down cleanly.
+    private static Process? _helperProcess;
+
     // Static constructor runs once per AppDomain on first member touch.
     //
     // No Debugger.IsAttached gate: [Conditional("DEBUG")] on every public API
     // already ensures Release builds have zero call sites, so the static ctor
-    // never fires and no port is bound. In Debug builds — `dotnet run`,
+    // never fires and no helper is spawned. In Debug builds — `dotnet run`,
     // `dotnet test`, VS F5, Rider Debug alike — the viewer starts on first
     // touch. One source of truth; no #if DEBUG anywhere else.
     //
+    // The viewer runs in a SEPARATE OS PROCESS (IfcEnvelopeMapper.DebugServer.exe),
+    // not in-process. Rationale: a .NET debugger attached to this process freezes
+    // ALL managed threads on a breakpoint, including an in-process HttpListener —
+    // so the browser would stall at "Pending…" for the entire pause. A separate
+    // OS process has its own thread scheduler that the debugger has no authority
+    // over, so the HTTP server keeps responding while the CLI is paused.
+    //
     // Wrapped in try/catch: type-initializer exceptions are sticky — they
-    // permanently brick the type for the process lifetime. A failed viewer
-    // start shouldn't take the ability to log shapes down with it.
+    // permanently brick the type for the process lifetime. A failed helper
+    // launch shouldn't take the ability to log shapes down with it.
     static GeometryDebug()
     {
         try
         {
-            // Discovery order:
-            //  1) Next to the DLL (AppContext.BaseDirectory) — the csproj's
-            //     <Content Include="tools/debug-viewer/**"> copies the HTML
-            //     there on every build/publish, so this is the steady-state
-            //     path for both Rider Debug runs and deployed binaries.
-            //  2) FindUpward from CWD — legacy fallback for oddball launchers
-            //     (plain "dotnet run" with unusual CWD, test hosts, etc.)
-            //     where the Content copy didn't happen or can't be reached.
+            // The helper DLL and debug-viewer/ live next to Debug.dll, flowed
+            // in via MSBuild Content items from the DebugServer project.
+            // We launch it as `dotnet IfcEnvelopeMapper.DebugServer.dll ...`
+            // (no native apphost — GDrive Streaming intermittently blocks
+            // apphost .exe emission with "user-mapped section open").
+            var helperDll  = Path.Combine(AppContext.BaseDirectory, "IfcEnvelopeMapper.DebugServer.dll");
             var viewerHtml = Path.Combine(AppContext.BaseDirectory, "debug-viewer", "index.html");
-            if (!File.Exists(viewerHtml))
-            {
-                viewerHtml = FindUpward("tools/debug-viewer/index.html");
-            }
 
-            if (viewerHtml is null || !File.Exists(viewerHtml))
+            if (!File.Exists(helperDll) || !File.Exists(viewerHtml))
             {
+                Console.Error.WriteLine(
+                    $"[GeometryDebug] viewer skipped — missing helper or HTML next to Debug.dll " +
+                    $"(helperDll={File.Exists(helperDll)}, html={File.Exists(viewerHtml)})");
                 return;
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(OutputPath)!);
-            DebugViewerServer.Start(5173, viewerHtml, OutputPath);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName               = "dotnet",
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                CreateNoWindow         = true,
+            };
+            startInfo.ArgumentList.Add(helperDll);
+            startInfo.ArgumentList.Add("5173");
+            startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+            startInfo.ArgumentList.Add(viewerHtml);
+            startInfo.ArgumentList.Add(OutputPath);
+
+            _helperProcess = Process.Start(startInfo);
+            if (_helperProcess is null)
+            {
+                Console.Error.WriteLine("[GeometryDebug] Process.Start returned null");
+                return;
+            }
+
+            // Pump helper stdout/stderr into this console so the "Debug viewer:
+            // http://localhost:PORT/" line and any errors surface to the user.
+            _helperProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
+            _helperProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+            _helperProcess.BeginOutputReadLine();
+            _helperProcess.BeginErrorReadLine();
+
+            // Graceful shutdown. The helper also has a parent-PID watchdog as
+            // backstop for hard crashes where ProcessExit never fires.
+            AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+            {
+                try
+                {
+                    if (_helperProcess is { HasExited: false })
+                    {
+                        _helperProcess.Kill();
+                    }
+                }
+                catch { /* best-effort cleanup */ }
+            };
         }
         catch (Exception ex)
         {
@@ -212,26 +264,5 @@ public static class GeometryDebug
         }
 
         return mesh;
-    }
-
-    // Walks up from CWD looking for a repo-relative path. Lets the same code
-    // work from bin/Debug/net8.0/, from the CLI's C:\temp working dir, or
-    // from a test host's output folder — whichever is active when the static
-    // ctor fires. Single copy: CLI and test fixture previously had their own.
-    private static string? FindUpward(string relative)
-    {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, relative);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = dir.Parent;
-        }
-
-        return null;
     }
 }
