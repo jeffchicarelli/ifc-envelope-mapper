@@ -2,19 +2,22 @@ using System.Diagnostics;
 using IfcEnvelopeMapper.Algorithms.Detection;
 using IfcEnvelopeMapper.Core.Evaluation;
 using IfcEnvelopeMapper.Core.Loading;
-using IfcEnvelopeMapper.Debug;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
 using Xbim.Ifc4.Interfaces;
 
+#if DEBUG
+using IfcEnvelopeMapper.Debug;
+
 // Start the debug viewer server NOW (before IFC loading or anything that might
 // throw), not lazily on the first GeometryDebug.* call deep inside Detect.
 // Clear() triggers GeometryDebug's static ctor — which binds port 5173 — and
 // writes an empty GLB so the viewer has something to serve on first poll.
-// [Conditional("DEBUG")] strips this call at Release compile time, so Release
-// CLI runs never touch the port.
+// The whole block is compile-gated now: Release runs don't even reference
+// the Debug project (see Algorithms.csproj conditional ProjectReference).
 GeometryDebug.Clear();
+#endif
 
 using var loggerFactory = LoggerFactory.Create(b =>
     b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -87,9 +90,10 @@ if (!File.Exists(gtPath))
     Console.WriteLine($"Ground truth: {gtPath} ({lines.Count - 1} records)");
 }
 
-Console.WriteLine("Running VoxelFloodFillStrategy (voxelSize=0.5)...");
+const double voxelSize = 0.25;
+Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize})...");
 var sw = Stopwatch.StartNew();
-var result = new VoxelFloodFillStrategy(voxelSize: 0.5).Detect(model.Elements);
+var result = new VoxelFloodFillStrategy(voxelSize: voxelSize).Detect(model.Elements);
 sw.Stop();
 
 var exterior = result.Classifications.Count(c => c.IsExterior);

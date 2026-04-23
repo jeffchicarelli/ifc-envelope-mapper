@@ -15,11 +15,23 @@
   </ItemGroup>
 
   <!--
-    Copy the debug-viewer HTML next to the DLL on build and publish. Flows
-    transitively: any project referencing this one (e.g. Cli, Tests) gets
-    debug-viewer/index.html in its own output too. Makes GeometryDebug's viewer
-    discovery location-agnostic — no more FindUpward-from-CWD gymnastics.
-    Link flattens the repo path (../../tools/debug-viewer/) to just debug-viewer/.
+    The viewer HTTP server runs out-of-process so the .NET debugger attached
+    to the consumer (CLI, tests) cannot freeze its threads. We depend on the
+    DebugServer project for BUILD ORDERING ONLY — no managed API coupling —
+    hence ReferenceOutputAssembly=false (don't add it to this DLL's refs) and
+    SkipGetTargetFrameworkProperties=true (the helper's TFM is irrelevant to
+    this DLL).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\IfcEnvelopeMapper.DebugServer\IfcEnvelopeMapper.DebugServer.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      Private="false" />
+  </ItemGroup>
+
+  <!--
+    Viewer HTML: repo-relative path, resolvable at project-evaluation time.
+    Flows transitively to every consumer of this DLL.
   -->
   <ItemGroup>
     <Content Include="..\..\tools\debug-viewer\**\*.*" Link="debug-viewer\%(RecursiveDir)%(FileName)%(Extension)">
@@ -27,5 +39,40 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+
+  <!--
+    Helper binaries: flow DebugServer's output files (DLL + deps.json +
+    runtimeconfig.json + PDB) next to Debug.dll and into every downstream
+    consumer's output/publish folder.
+
+    We hook BOTH own-project output (GetCopyToOutputDirectoryItems) and
+    consumer propagation by populating @(AllItemsFullPathWithTargetPath)
+    directly — that is the item list MSBuild sorts, then consumers read it
+    via _GetProjectReferenceTargetFrameworkProperties → CopyFilesToOutputDirectory.
+
+    DependsOnTargets="ResolveProjectReferences" guarantees DebugServer has
+    already built (MSBuild respects the ProjectReference dependency) so the
+    wildcard hits a populated folder.
+
+    Using explicit file list, not a glob, to keep first-time builds
+    deterministic and to document exactly what's flowing.
+  -->
+  <Target Name="IncludeDebugServerBinaries"
+          BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems"
+          DependsOnTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <_DebugServerBinary Include="..\IfcEnvelopeMapper.DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.dll" />
+      <_DebugServerBinary Include="..\IfcEnvelopeMapper.DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.deps.json" />
+      <_DebugServerBinary Include="..\IfcEnvelopeMapper.DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.runtimeconfig.json" />
+      <_DebugServerBinary Include="..\IfcEnvelopeMapper.DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.pdb" />
+
+      <Content Include="@(_DebugServerBinary)" Condition="Exists('%(Identity)')">
+        <Link>%(FileName)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <Visible>false</Visible>
+      </Content>
+    </ItemGroup>
+  </Target>
 
 </Project>

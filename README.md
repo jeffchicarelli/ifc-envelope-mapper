@@ -19,7 +19,7 @@ dotnet build --configuration Release
 dotnet test  --no-build --configuration Release
 ```
 
-At the time of writing: 7 projects, 34 unit tests, all green on CI.
+At the time of writing: 7 projects, 64 unit tests, all green on CI.
 
 ## Run the CLI
 
@@ -46,11 +46,11 @@ src/
   IfcEnvelopeMapper.Algorithms/   Envelope detection and facade grouping strategies
   IfcEnvelopeMapper.Ifc/          xBIM adapter: implements IModelLoader
   IfcEnvelopeMapper.Lod/          LoD generators (ADR-15) — scaffolded
-  IfcEnvelopeMapper.Debug/        Debug sinks: GltfDebugSink, ConsoleDebugSink (ADR-16) — scaffolded
+  IfcEnvelopeMapper.Debug/        GeometryDebug API + GLB writer + local HTTP viewer server (ADR-17)
   IfcEnvelopeMapper.Cli/          System.CommandLine executable
   IfcEnvelopeMapper.Viewer/       Web viewer (Blazor + three.js) — scaffolded
 tools/
-  debug-viewer/                   Standalone HTML + three.js glTF viewer (ADR-16 Camada B)
+  debug-viewer/                   three.js glTF viewer served by DebugViewerServer (ADR-17, Camada B)
 tests/
   IfcEnvelopeMapper.Tests/        xUnit + FluentAssertions
 docs/

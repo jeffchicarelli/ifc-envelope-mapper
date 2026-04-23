@@ -1,10 +1,21 @@
+#define DEBUGMESH
+#if RELEASE
+#undef DEBUGMESH
+#endif
+
 using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
-using IfcEnvelopeMapper.Debug;
 using IfcEnvelopeMapper.Geometry.Operations;
 using IfcEnvelopeMapper.Geometry.Voxel;
+
+// Debug is a Debug-config-only ProjectReference — this using has to match
+// the same gate as the call sites below, otherwise Release can't resolve
+// the namespace.
+#if DEBUGMESH
+using IfcEnvelopeMapper.Debug;
+#endif
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
 
@@ -27,24 +38,48 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
             return EmptyResult();
         }
 
-        // GeometryDebug.* calls below are [Conditional("DEBUG")] — stripped at
-        // compile time in Release, free in Debug. No #if wrappers needed.
-        foreach (var group in elementsList.GroupBy(e => e.IfcType))
+#if DEBUGMESH
+        // Per-element emission: each mesh becomes its own glTF node tagged with
+        // { globalId, ifcType } in extras. The viewer groups nodes by ifcType
+        // for layer buttons and uses globalId for click-picking/highlighting.
+        foreach (var element in elementsList)
         {
-            GeometryDebug.Meshes(group.Select(e => e.Mesh), IfcTypePalette.For(group.Key), group.Key);
+            GeometryDebug.Element(element.Mesh, element.GlobalId, element.IfcType,
+                IfcTypePalette.For(element.IfcType));
         }
+#endif
 
         var grid = BuildGrid(elementsList);
         Rasterize(grid, elementsList);
 
+#if DEBUGMESH
+        // Sidecar JSON { "x,y,z": [globalIds...] } for viewer click-picking.
+        // Emitted right after rasterize — occupants only grow during Rasterize,
+        // so writing here captures the final mapping while the user can still
+        // step through the flood-fill stages.
+        GeometryDebug.VoxelOccupants(grid);
+
+        var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
+        Console.WriteLine($"occupied voxels: {occupied.Count}");
+        GeometryDebug.Voxels(grid, occupied, "#00aa00c0", "occupied");
+#endif
+
         grid.GrowExterior();
         grid.FillGaps();
 
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Exterior), "#0055ff20", "exterior");
+#if DEBUGMESH
+        var exterior = grid.VoxelsByState(VoxelState.Exterior).ToList();
+        Console.WriteLine($"exterior voxels: {exterior.Count}");
+        GeometryDebug.Voxels(grid, exterior, "#0055ffc0", "exterior");
+#endif
 
         grid.GrowInterior();
 
-        GeometryDebug.Voxels(grid, grid.VoxelsByState(VoxelState.Interior), "#ff000020", "interior");
+#if DEBUGMESH
+        var interior = grid.VoxelsByState(VoxelState.Interior).ToList();
+        Console.WriteLine($"interior voxels: {interior.Count}");
+        GeometryDebug.Voxels(grid, interior, "#ff0000c0", "interior");
+#endif
 
         grid.GrowVoid();
 
@@ -106,6 +141,8 @@ public sealed class VoxelFloodFillStrategy : IDetectionStrategy
                     if (grid[coord] == VoxelState.Unknown)
                     {
                         grid[coord] = VoxelState.Occupied;
+
+                        // GeometryDebug.Voxels(grid, [coord], "#00aa0020", "occupied");
                     }
 
                     grid.AddOccupant(coord, element.GlobalId);
