@@ -25,6 +25,17 @@ var parentPid      = int.Parse(args[1]);
 var viewerHtmlPath = args[2];
 var glbPath        = args[3];
 
+// Sidecar path derived from the GLB path — same folder, fixed name. Keeps
+// the CLI↔helper contract small (no new positional arg for every new file
+// type the viewer eventually wants).
+var occupantsPath  = Path.Combine(Path.GetDirectoryName(glbPath)!, "ifc-debug-occupants.json");
+
+// One GUID per helper process, advertised on every response. The viewer
+// compares it across polls; a change signals a brand-new debug session and
+// triggers location.reload() even if the poll loop never observed a fetch
+// failure during the old→new helper handoff.
+var sessionId = Guid.NewGuid().ToString("N");
+
 // Watchdog. If the CLI dies without running its ProcessExit handler (hard
 // crash, power loss, SIGKILL), this helper would otherwise outlive its
 // purpose and keep the port bound. Poll every 2 s; self-exit when the
@@ -67,7 +78,7 @@ while (true)
     // Fire-and-forget: one Task per request. HttpListener can have many
     // concurrent in-flight requests (the viewer polls every 200 ms, but also
     // fetches HTML + GLB on load); serial handling would stall the poll loop.
-    _ = Task.Run(() => HandleAsync(ctx, viewerHtmlPath, glbPath));
+    _ = Task.Run(() => HandleAsync(ctx, viewerHtmlPath, glbPath, occupantsPath, sessionId));
 }
 
 return 0;
@@ -103,10 +114,11 @@ static int GetFreePort()
     return port;
 }
 
-static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, string glbPath)
+static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, string glbPath, string occupantsPath, string sessionId)
 {
     try
     {
+        ctx.Response.Headers["X-Debug-Session"] = sessionId;
         var path = ctx.Request.Url?.AbsolutePath ?? "/";
         switch (path)
         {
@@ -116,6 +128,9 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
                 break;
             case "/ifc-debug-output.glb":
                 await ServeFileAsync(ctx, glbPath, "model/gltf-binary");
+                break;
+            case "/ifc-debug-occupants.json":
+                await ServeFileAsync(ctx, occupantsPath, "application/json; charset=utf-8");
                 break;
             default:
                 ctx.Response.StatusCode = 404;
@@ -140,14 +155,38 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
         return;
     }
 
-    var bytes = await File.ReadAllBytesAsync(path);
+    // FileShare.ReadWrite | FileShare.Delete: the CLI atomically replaces the
+    // GLB via write-tmp + File.Move(overwrite). File.ReadAllBytesAsync opens
+    // with FileShare.Read (no Delete), so a concurrent rename is denied by
+    // Windows and the CLI throws UnauthorizedAccessException. Opening with
+    // Delete sharing lets the rename succeed — this handle keeps reading the
+    // original file contents via its existing handle, and the next poll picks
+    // up the new file.
+    byte[] bytes;
+    DateTime lastWriteUtc;
+    await using (var fs = new FileStream(
+        path, FileMode.Open, FileAccess.Read,
+        FileShare.ReadWrite | FileShare.Delete))
+    {
+        // Read timestamp from the HANDLE, not the path. File.Move(overwrite:true)
+        // swaps the inode at `path` atomically; a path-based timestamp lookup can
+        // resolve to the NEW inode while `fs` is still pinned to the OLD one,
+        // producing a response where bytes and Last-Modified come from different
+        // file versions — the viewer would cache the new timestamp, see no change
+        // on the next poll, and never refetch.
+        lastWriteUtc = File.GetLastWriteTimeUtc(fs.SafeFileHandle);
+        using var ms = new MemoryStream((int)fs.Length);
+        await fs.CopyToAsync(ms);
+        bytes = ms.ToArray();
+    }
+
     ctx.Response.ContentType     = contentType;
     ctx.Response.ContentLength64 = bytes.Length;
 
     // Ticks (100 ns) instead of RFC 1123 ("R", 1 s) so two flushes in the same
     // calendar second produce distinct Last-Modified values. Viewer compares
     // this header as a plain string, not a date.
-    ctx.Response.Headers["Last-Modified"] = File.GetLastWriteTimeUtc(path).Ticks.ToString();
+    ctx.Response.Headers["Last-Modified"] = lastWriteUtc.Ticks.ToString();
     ctx.Response.Headers["Cache-Control"] = "no-store";
 
     await ctx.Response.OutputStream.WriteAsync(bytes);

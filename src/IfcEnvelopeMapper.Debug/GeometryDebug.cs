@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using g4;
 using IfcEnvelopeMapper.Geometry.Primitives;
 using IfcEnvelopeMapper.Geometry.Voxel;
@@ -29,6 +30,12 @@ public static class GeometryDebug
     // native-DLL workaround), so everything lives in the same folder.
     private static readonly string OutputPath =
         Path.Combine(@"C:\temp", "ifc-debug-output.glb");
+
+    // Sidecar JSON served by DebugServer alongside the GLB. Populated by
+    // GeometryDebug.VoxelOccupants to let the viewer map a clicked voxel
+    // back to the building elements that rasterized into it.
+    private static readonly string OccupantsPath =
+        Path.Combine(@"C:\temp", "ifc-debug-occupants.json");
 
     private static readonly List<DebugShape> _shapes = new();
 
@@ -140,6 +147,17 @@ public static class GeometryDebug
         Add(new MeshShape(Merge(meshes), color, label));
     }
 
+    // Per-element emission: each call becomes its own glTF node tagged with
+    // { globalId, ifcType } in extras. The viewer groups nodes by ifcType for
+    // layer buttons but can raycast/highlight individual elements by globalId.
+    // Callers pass raw fields (not BuildingElement) to keep this project
+    // decoupled from IfcEnvelopeMapper.Core.
+    [Conditional("DEBUG")]
+    public static void Element(DMesh3 mesh, string globalId, string ifcType, string color = "#cccccc")
+    {
+        Add(new MeshShape(mesh, color, ifcType, globalId));
+    }
+
     // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
     [Conditional("DEBUG")]
     public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds,
@@ -199,6 +217,51 @@ public static class GeometryDebug
                                string color = "#ffff00", string label = "")
     {
         Add(new LinesShape([(origin, origin + direction * length)], color, label));
+    }
+
+    // Writes a sidecar JSON { voxelSize, origin, occupants: { "x,y,z": [...ids] } }
+    // next to the GLB so the viewer can reverse a picked voxel back to the
+    // BuildingElements that rasterized into it. Only cells with ≥1 occupant
+    // are emitted (sparse); typical file is small (few hundred KB even for
+    // 10k voxels × ~2 ids).
+    //
+    // Atomic write: same tmp-then-Move pattern as GLB emission — the helper
+    // reads with FileShare.ReadWrite | FileShare.Delete so a mid-flight rename
+    // does not deny the next poll.
+    [Conditional("DEBUG")]
+    public static void VoxelOccupants(VoxelGrid3D grid)
+    {
+        var occupants = new Dictionary<string, string[]>();
+        for (var x = 0; x < grid.NX; x++)
+        {
+            for (var y = 0; y < grid.NY; y++)
+            {
+                for (var z = 0; z < grid.NZ; z++)
+                {
+                    var coord = new VoxelCoord(x, y, z);
+                    var ids   = grid.OccupantsOf(coord);
+                    if (ids.Count == 0)
+                    {
+                        continue;
+                    }
+                    occupants[$"{x},{y},{z}"] = ids.ToArray();
+                }
+            }
+        }
+
+        var payload = new
+        {
+            voxelSize = grid.VoxelSize,
+            origin    = new[] { grid.Bounds.Min.x, grid.Bounds.Min.y, grid.Bounds.Min.z },
+            nx        = grid.NX,
+            ny        = grid.NY,
+            nz        = grid.NZ,
+            occupants,
+        };
+
+        var tmp = OccupantsPath + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(payload));
+        GltfSerializer.MoveWithRetry(tmp, OccupantsPath);
     }
 
     [Conditional("DEBUG")]

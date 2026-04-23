@@ -89,7 +89,7 @@ if (!File.Exists(gtPath))
 
 Console.WriteLine("Running VoxelFloodFillStrategy (voxelSize=0.5)...");
 var sw = Stopwatch.StartNew();
-var result = new VoxelFloodFillStrategy(voxelSize: 0.5).Detect(model.Elements);
+var result = new VoxelFloodFillStrategy(voxelSize: 0.25).Detect(model.Elements);
 sw.Stop();
 
 var exterior = result.Classifications.Count(c => c.IsExterior);

@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json.Nodes;
 using g4;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -30,14 +31,22 @@ internal static class GltfSerializer
         // Insertion order is preserved (Dictionary<TKey,TValue> iterates in insertion
         // order in the current runtime), so layer buttons appear in the order the
         // first call with each (label, color) arrived.
-        var meshes  = new Dictionary<(string label, string color), DMesh3>();
-        var lines   = new Dictionary<(string label, string color), List<(Vector3d From, Vector3d To)>>();
-        var points  = new Dictionary<(string label, string color), List<Vector3d>>();
+        var meshes   = new Dictionary<(string label, string color), DMesh3>();
+        // Per-element emissions (MeshShape with GlobalId) skip the merge path so
+        // the viewer gets one node per element with { globalId, ifcType } extras.
+        var elements = new List<MeshShape>();
+        var lines    = new Dictionary<(string label, string color), List<(Vector3d From, Vector3d To)>>();
+        var points   = new Dictionary<(string label, string color), List<Vector3d>>();
 
         foreach (var shape in shapes)
         {
             switch (shape)
             {
+                case MeshShape m when m.GlobalId is not null:
+                {
+                    elements.Add(m);
+                    break;
+                }
                 case MeshShape m:
                 {
                     var key = (m.Label, m.Color);
@@ -75,9 +84,10 @@ internal static class GltfSerializer
         }
 
         var scene = new SceneBuilder();
-        foreach (var ((label, color), mesh)   in meshes) AddMesh(scene, mesh, color, label);
-        foreach (var ((label, color), segs)   in lines)  AddLines(scene, segs.ToArray(), color, label);
-        foreach (var ((label, color), pts)    in points) AddPoints(scene, pts.ToArray(), color, label);
+        foreach (var ((label, color), mesh)   in meshes)   AddMesh(scene, mesh, color, label);
+        foreach (var m                        in elements) AddElementMesh(scene, m);
+        foreach (var ((label, color), segs)   in lines)    AddLines(scene, segs.ToArray(), color, label);
+        foreach (var ((label, color), pts)    in points)   AddPoints(scene, pts.ToArray(), color, label);
 
         // SaveGLB writes a single self-contained binary file (JSON + buffers embedded).
         // SaveGLTF would produce a split .gltf + .bin pair, which the browser-based
@@ -90,7 +100,36 @@ internal static class GltfSerializer
         // and the status stays on "Starting…" indefinitely.
         var tmpPath = outputPath + ".tmp";
         scene.ToGltf2().SaveGLB(tmpPath);
-        File.Move(tmpPath, outputPath, overwrite: true);
+        MoveWithRetry(tmpPath, outputPath);
+    }
+
+    // File.Move(overwrite:true) occasionally hits UnauthorizedAccessException
+    // on Windows when something else holds the destination open without
+    // FileShare.Delete: an orphan helper from a previous run still inside its
+    // 2 s watchdog window, anti-virus mid-scan, or Google Drive Streaming's
+    // filesystem shim (see ADR about running the CLI from C:\temp). All three
+    // are transient — 20 × 50 ms = ~1 s total wait covers every occurrence
+    // observed so far. A 1 s stall during a debug flush is still visible to
+    // the user, so a real deadlock wouldn't hide here.
+    internal static void MoveWithRetry(string src, string dest)
+    {
+        const int attempts = 20;
+        for (var i = 0; i < attempts; i++)
+        {
+            try
+            {
+                File.Move(src, dest, overwrite: true);
+                return;
+            }
+            catch (UnauthorizedAccessException) when (i < attempts - 1)
+            {
+                Thread.Sleep(50);
+            }
+            catch (IOException) when (i < attempts - 1)
+            {
+                Thread.Sleep(50);
+            }
+        }
     }
 
     // Concatenates `source` triangles into `dest`. Uses the VertexCount offset
@@ -163,6 +202,37 @@ internal static class GltfSerializer
         }
 
         scene.AddRigidMesh(mb, Matrix4x4.Identity);
+    }
+
+    // Per-element node with glTF `extras = { globalId, ifcType }`. The viewer
+    // reads node.userData from these extras for click-picking + grouping.
+    // Label carries ifcType (set by GeometryDebug.Element) — re-copied into
+    // extras so the viewer doesn't have to infer it from the node name.
+    private static void AddElementMesh(SceneBuilder scene, MeshShape m)
+    {
+        var mb   = new MeshBuilder<VertexPosition>($"{m.Label}:{m.GlobalId}");
+        var prim = mb.UsePrimitive(MakeMaterial(m.Color, m.Label));
+
+        for (var tid = 0; tid < m.Mesh.MaxTriangleID; tid++)
+        {
+            if (!m.Mesh.IsTriangle(tid))
+            {
+                continue;
+            }
+
+            var t = m.Mesh.GetTriangle(tid);
+            prim.AddTriangle(Vp(m.Mesh.GetVertex(t.a)), Vp(m.Mesh.GetVertex(t.b)), Vp(m.Mesh.GetVertex(t.c)));
+        }
+
+        var instance = scene.AddRigidMesh(mb, Matrix4x4.Identity);
+        // InstanceBuilder.Extras is read-only; the writable one lives on the
+        // transformer (RigidTransformer inherits ContentTransformer.Extras),
+        // typed as JsonNode (SharpGLTF alpha0032+ migrated off its own JsonContent).
+        instance.Content.Extras = new JsonObject
+        {
+            ["globalId"] = m.GlobalId,
+            ["ifcType"]  = m.Label,
+        };
     }
 
     private static void AddLines(SceneBuilder scene, (Vector3d From, Vector3d To)[] segs,
