@@ -7,9 +7,15 @@ using g4;
 using IfcEnvelopeMapper.Core.Detection;
 using IfcEnvelopeMapper.Core.Element;
 using IfcEnvelopeMapper.Core.Surface;
-using IfcEnvelopeMapper.Debug;
 using IfcEnvelopeMapper.Geometry.Operations;
 using IfcEnvelopeMapper.Geometry.Voxel;
+
+// Debug is a Debug-config-only ProjectReference — this using has to match
+// the same gate as the call sites below, otherwise Release can't resolve
+// the namespace.
+#if DEBUGMESH
+using IfcEnvelopeMapper.Debug;
+#endif
 
 namespace IfcEnvelopeMapper.Algorithms.Detection;
 

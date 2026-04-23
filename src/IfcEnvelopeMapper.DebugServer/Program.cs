@@ -1,34 +1,53 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 // Helper process for the debug viewer. Runs in a separate OS process from
 // the CLI so the .NET debugger — attached to the CLI for breakpoint work —
 // has no authority to freeze this process's threads. See ADR-17 update
 // block (2026-04-21) in docs/plano.md.
 //
-// Args (positional, internal contract with GeometryDebug):
-//   [0] port            preferred port (falls back to OS-assigned on conflict)
-//   [1] parentPid       CLI's PID; helper self-exits if parent dies
-//   [2] viewerHtmlPath  absolute path to debug-viewer/index.html
-//   [3] glbPath         absolute path to ifc-debug-output.glb (may not exist yet)
+// Config handshake: the parent writes one JSON line to our stdin and closes
+// the pipe. Replaces the old positional-args contract (4 CLI args in a fixed
+// order) — a typed record survives renames and leaves room for new fields
+// (extra sidecars, log level) without reshuffling args at every call site.
 
-if (args.Length < 4)
+var configLine = Console.In.ReadLine();
+if (string.IsNullOrWhiteSpace(configLine))
 {
-    Console.Error.WriteLine(
-        "Usage: IfcEnvelopeMapper.DebugServer <port> <parentPid> <viewerHtmlPath> <glbPath>");
+    Console.Error.WriteLine("DebugServer: expected JSON config on stdin, got empty input");
     return 2;
 }
 
-var preferredPort  = int.Parse(args[0]);
-var parentPid      = int.Parse(args[1]);
-var viewerHtmlPath = args[2];
-var glbPath        = args[3];
+HelperConfig? config;
+try
+{
+    config = JsonSerializer.Deserialize<HelperConfig>(configLine);
+}
+catch (JsonException ex)
+{
+    Console.Error.WriteLine($"DebugServer: invalid JSON config: {ex.Message}");
+    return 2;
+}
+
+if (config is null || string.IsNullOrEmpty(config.ViewerHtmlPath) || string.IsNullOrEmpty(config.GlbPath))
+{
+    Console.Error.WriteLine("DebugServer: config missing required fields (viewerHtmlPath, glbPath)");
+    return 2;
+}
 
 // Sidecar path derived from the GLB path — same folder, fixed name. Keeps
-// the CLI↔helper contract small (no new positional arg for every new file
-// type the viewer eventually wants).
-var occupantsPath  = Path.Combine(Path.GetDirectoryName(glbPath)!, "ifc-debug-occupants.json");
+// the CLI↔helper contract small (no new field for every new file type the
+// viewer eventually wants).
+var occupantsPath = Path.Combine(Path.GetDirectoryName(config.GlbPath)!, "ifc-debug-occupants.json");
+
+// Root for the viewer's static assets (JS modules, future CSS/images). The
+// HTML entry point sits at the top of this tree — any relative request from
+// inside it is resolved against this directory, with a canonical-path check
+// below to block path traversal (..\ / symlinks pointing outside the tree).
+var viewerAssetRoot = Path.GetFullPath(Path.GetDirectoryName(config.ViewerHtmlPath)!);
 
 // One GUID per helper process, advertised on every response. The viewer
 // compares it across polls; a change signals a brand-new debug session and
@@ -46,7 +65,7 @@ _ = Task.Run(async () =>
     {
         try
         {
-            var parent = Process.GetProcessById(parentPid);
+            var parent = Process.GetProcessById(config.ParentPid);
             if (parent.HasExited)
             {
                 Environment.Exit(0);
@@ -62,7 +81,7 @@ _ = Task.Run(async () =>
     }
 });
 
-var (listener, boundPort) = TryBind(preferredPort);
+var (listener, boundPort) = TryBind(config.Port);
 Console.WriteLine($"Debug viewer: http://localhost:{boundPort}/");
 
 while (true)
@@ -78,7 +97,7 @@ while (true)
     // Fire-and-forget: one Task per request. HttpListener can have many
     // concurrent in-flight requests (the viewer polls every 200 ms, but also
     // fetches HTML + GLB on load); serial handling would stall the poll loop.
-    _ = Task.Run(() => HandleAsync(ctx, viewerHtmlPath, glbPath, occupantsPath, sessionId));
+    _ = Task.Run(() => HandleAsync(ctx, config.ViewerHtmlPath, viewerAssetRoot, config.GlbPath, occupantsPath, sessionId));
 }
 
 return 0;
@@ -114,28 +133,46 @@ static int GetFreePort()
     return port;
 }
 
-static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, string glbPath, string occupantsPath, string sessionId)
+static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, string viewerAssetRoot, string glbPath, string occupantsPath, string sessionId)
 {
     try
     {
         ctx.Response.Headers["X-Debug-Session"] = sessionId;
         var path = ctx.Request.Url?.AbsolutePath ?? "/";
-        switch (path)
+
+        // Payload routes come first — these live in C:\temp, not under the
+        // viewer asset root. An occupants request must not fall through to
+        // the static-asset resolver and get a 404 for the wrong reason.
+        if (path is "/" or "/index.html")
         {
-            case "/":
-            case "/index.html":
-                await ServeFileAsync(ctx, viewerHtmlPath, "text/html; charset=utf-8");
-                break;
-            case "/ifc-debug-output.glb":
-                await ServeFileAsync(ctx, glbPath, "model/gltf-binary");
-                break;
-            case "/ifc-debug-occupants.json":
-                await ServeFileAsync(ctx, occupantsPath, "application/json; charset=utf-8");
-                break;
-            default:
-                ctx.Response.StatusCode = 404;
-                break;
+            await ServeFileAsync(ctx, viewerHtmlPath, "text/html; charset=utf-8");
+            return;
         }
+        if (path == "/ifc-debug-output.glb")
+        {
+            await ServeFileAsync(ctx, glbPath, "model/gltf-binary");
+            return;
+        }
+        if (path == "/ifc-debug-occupants.json")
+        {
+            await ServeFileAsync(ctx, occupantsPath, "application/json; charset=utf-8");
+            return;
+        }
+
+        // Static assets: JS modules (and future CSS/images) living next to the
+        // viewer HTML. Path.GetFullPath normalizes %-decoded input and resolves
+        // any .. segments; we then require the result to stay under the asset
+        // root, so ../../../Windows/System32/... attempts 404 instead of escaping.
+        var relative = Uri.UnescapeDataString(path.TrimStart('/'));
+        var candidate = Path.GetFullPath(Path.Combine(viewerAssetRoot, relative));
+        if (candidate.StartsWith(viewerAssetRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            && File.Exists(candidate))
+        {
+            await ServeFileAsync(ctx, candidate, GuessContentType(candidate));
+            return;
+        }
+
+        ctx.Response.StatusCode = 404;
     }
     catch
     {
@@ -146,6 +183,22 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
         ctx.Response.Close();
     }
 }
+
+// Minimal content-type mapper — we only ship a handful of asset types. Anything
+// unknown falls back to octet-stream, which the browser handles sensibly (and
+// never gets served because the resolver only admits known extensions indirectly
+// via File.Exists on the viewer asset tree).
+static string GuessContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+{
+    ".js"   => "text/javascript; charset=utf-8",
+    ".mjs"  => "text/javascript; charset=utf-8",
+    ".css"  => "text/css; charset=utf-8",
+    ".html" => "text/html; charset=utf-8",
+    ".json" => "application/json; charset=utf-8",
+    ".svg"  => "image/svg+xml",
+    ".png"  => "image/png",
+    _       => "application/octet-stream",
+};
 
 static async Task ServeFileAsync(HttpListenerContext ctx, string path, string contentType)
 {
@@ -191,3 +244,13 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
 
     await ctx.Response.OutputStream.WriteAsync(bytes);
 }
+
+// Handshake payload. Public + record so the parent (DebugSession) can
+// serialize the same shape without duplicating field names — System.Text.Json
+// property-name matching is case-insensitive by default, but camelCase output
+// keeps the on-wire JSON small and human-readable.
+internal sealed record HelperConfig(
+    [property: JsonPropertyName("port")]           int    Port,
+    [property: JsonPropertyName("parentPid")]      int    ParentPid,
+    [property: JsonPropertyName("viewerHtmlPath")] string ViewerHtmlPath,
+    [property: JsonPropertyName("glbPath")]        string GlbPath);
