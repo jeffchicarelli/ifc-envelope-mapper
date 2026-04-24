@@ -1,7 +1,7 @@
 # Plano de Implementação — IfcEnvelopeMapper
 
 > Documento vivo. Atualizar a cada sessão de desenvolvimento.
-> Última atualização: 2026-04-19
+> Última atualização: 2026-04-24
 
 ---
 
@@ -33,7 +33,19 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 
 Construir uma ferramenta C#/.NET que identifica automaticamente elementos de fachada em modelos IFC usando **apenas geometria 3D** — sem depender de propriedades ou metadados do modelo.
 
-O trabalho propõe **um método computacional**, avaliado rigorosamente em modelos IFC de diferentes tipologias. O método implementa uma estratégia de produção única (`VoxelFloodFillStrategy` — van der Vaart 2022, com cascata 4-testes + 3 fases flood-fill + `FillGaps`) e mantém `RayCastingStrategy` (Ying 2022) implementada exclusivamente como baseline de comparação no capítulo de Resultados. Decisão fundamentada em ADR-14 (que superseda ADR-12 parcialmente).
+### Pergunta de pesquisa
+
+> Um esquema de voxelização hierárquica com *flood-fill* supera a voxelização uniforme (van der Vaart 2022) e o *ray casting* (Ying 2022) em precisão e *recall* sobre modelos IFC reais, preservando rastreabilidade ao `GlobalId` do elemento de origem e agregação em fachadas por plano dominante?
+
+### Método
+
+O trabalho propõe e avalia **três estratégias de detecção** em modelos IFC de tipologias distintas, com contagens TP/FP/FN/TN + Precisão/Recall reportadas por estratégia:
+
+1. **Voxelização uniforme com *flood-fill* 3-fases** (van der Vaart 2022) — **ablation baseline**. Grade de voxels cúbicos de lado fixo; `GrowExterior → GrowInterior → GrowVoid` + `FillGaps`. Fases 1–2 concluídas.
+2. ***Ray casting* por face** (Ying 2022) — **baseline externo**. BVH sobre todos os triângulos; raios partindo de cada face na direção da normal; face é exterior se o raio escapa sem interceptar outro elemento. Fase 3.
+3. ***Hierarchical Voxel Flood-Fill*** — **contribuição original**. Voxelização multi-resolução (octree ou adaptativa): células grandes no espaço livre, refinamento progressivo na vizinhança da casca. Mesmo contrato de classificação do baseline uniforme (TP/FP/FN/TN + Precisão/Recall + rastreabilidade por `GlobalId`), com ganho esperado em precisão em detalhes finos (ex: janelas <300mm) sem inflar o custo total do *flood-fill*. Fase 8.
+
+A decisão é defendida em ADR-14 (revisada em 2026-04-24). A comparação algorítmica das três estratégias aparece no capítulo de Resultados.
 
 ---
 
@@ -664,8 +676,7 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 
 ## Tabela Comparativa das Estratégias de Detecção
 
-> A decisão (ADR-14) é Voxel primária + RayCasting baseline. Esta tabela respalda
-> a escolha e alimenta o capítulo de Resultados — comparação algorítmica entre as duas.
+> Escopo desta tabela: **Voxelização Uniforme (ablation baseline)** × ***Ray Casting* (baseline externo)**. Cobre as Fases 3–7. A terceira estratégia — *Hierarchical Voxel Flood-Fill* (contribuição original) — é introduzida na Fase 8; a comparação final com 3 estratégias aparece no capítulo de Resultados da dissertação e é resumida em §Comportamento em casos geométricos chave.
 
 | Critério | Voxel + Flood-Fill (primária) | Ray Casting (baseline) |
 |---|---|---|
@@ -683,7 +694,139 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 | **Rastreabilidade** | Preservada via `grid[v].Elementos` (padrão do EnvExtractor) | Preservada nativamente — raio por face do elemento |
 | **Validação na literatura** | Forte (van der Vaart: casca multi-LoD; projeto CHEK €5M) | Forte (Ying: 99%+ em ray tracing recursivo) |
 
-**Nota sobre a decisão (ADR-14).** Voxel é primária pela robustez em IFC real — modelos com gaps, auto-interseções e topologia imperfeita são a norma, não a exceção (documentado em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). Ray Casting fica como baseline de comparação, caracterizando tradeoff precisão-vs-robustez. A `NormalsStrategy` (presente em ADR-12) foi descartada: baseline trivial não contribui comparação científica relevante — RayCasting é baseline mais forte, contrastando com método state-of-the-art validado.
+**Nota sobre a decisão (ADR-14, revisada 2026-04-24).** Esta tabela cobre apenas as Fases 3–7. A escolha de *voxel flood-fill* uniforme como baseline de produção se apoia na robustez em IFC real — modelos com *gaps*, auto-interseções e topologia imperfeita são a norma, não a exceção (documentado em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). *Ray Casting* entra como baseline de comparação, caracterizando o *tradeoff* precisão × robustez. A `NormalsStrategy` (presente em ADR-12) permanece descartada: baseline trivial não contribui comparação científica relevante. Na Fase 8, a voxelização uniforme passa a ser comparada com a variante hierárquica como contribuição original do trabalho.
+
+---
+
+## Comportamento em casos geométricos chave
+
+Esta seção documenta os padrões geométricos em que as estratégias divergem. É a base do argumento de defesa: *por que flood-fill volumétrico é preferível ao ray casting em IFC real*, e *por que uma variante hierárquica é defensável como contribuição*.
+
+### Caso 1 — Poço de luz (*air well*) central
+
+Cavidade vertical aberta no topo, cercada por paredes em todos os lados horizontais. Frequente em edifícios residenciais e comerciais antigos.
+
+```
+        ceu (exterior)
+            │
+            ▼
+    ┌───────────────────────┐       ── telhado ──
+    │         │     │       │
+    │  sala   │ poço│ sala  │       ↓ flood-fill desce
+    │         │ luz │       │         pelo topo aberto
+    │         │     │       │         (exterior)
+    │─────────┤░░░░░├───────│
+    │         │░░░░░│       │       ── piso ──
+    │  sala   │░░░░░│ sala  │         raio horizontal
+    │         │░░░░░│       │         de parede interna
+    │─────────┤░░░░░├───────│         bate na parede
+    │         │     │       │         oposta → classifica
+    │ garagem │ poço│ depos.│         como EXTERIOR (falso
+    │         │     │       │         positivo)
+    └───────────────────────┘
+```
+
+**Voxel *flood-fill***: o *flood-fill* parte do canto (0,0,0) do *grid* expandido, atinge o céu acima do telhado e desce pelo poço. Paredes que dão para o poço são corretamente marcadas como exterior.
+
+**Ray casting**: um raio lançado a partir da normal de uma parede interna do poço, na horizontal, intercepta a parede oposta do mesmo poço. Classifica como **interior** — falso negativo.
+
+**Hierarchical Voxel Flood-Fill**: mesmo resultado correto que o *flood-fill* uniforme, porém com gasto proporcional ao volume do poço (célula grande) em vez do volume da casa inteira em resolução fina.
+
+### Caso 2 — Átrio coberto com *skylight*
+
+Cavidade vertical fechada no topo por vidro (exterior declarado, mas topologicamente selada).
+
+```
+    ─── vidro do skylight ───       ↓ flood-fill NÃO desce
+     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓         (skylight = casca sólida
+    ┌───────────────────────┐         após rasterização)
+    │         │     │       │
+    │ quarto  │ \a/ │ quarto│       paredes do átrio: topo-
+    │         │ |   │       │       logicamente isoladas do
+    │─────────┤ |   ├───────│       exterior → classificadas
+    │         │ |   │       │       INTERIOR por flood-fill
+    │ sala    │ |   │ cozinh│
+    │         │     │       │       ray casting: raio hori-
+    └───────────────────────┘       zontal bate na parede
+                                    oposta → INTERIOR (ok)
+```
+
+**Voxel *flood-fill***: correto — *skylight* vedado impede a descida do *flood* exterior, paredes do átrio ficam interior. Concorda com o julgamento AEC de *"fachada = separa interior climatizado do exterior"*.
+
+**Ray casting**: coincidentemente também correto neste caso (raio horizontal bate em parede oposta).
+
+**Diferença**: o caso 1 (poço aberto) é onde as duas estratégias **divergem**; o caso 2 mostra que o *flood-fill* não confunde átrio coberto com poço aberto — ele respeita a topologia real.
+
+### Caso 3 — Eixo estreito (*shaft*) de instalações
+
+Duto vertical de <500mm para instalações hidráulicas ou elétricas, passando por todos os pavimentos, aberto ao telhado.
+
+```
+    ┌──────────────────┐
+    │        │█│       │    █ = shaft (largura < voxel-size
+    │  sala  │█│ sala  │        0.5m ⇒ NÃO é rasterizado como
+    │        │█│       │        casca sólida; vira "túnel" no
+    │────────┤█├───────│        grid uniforme)
+    │        │█│       │
+    │  sala  │█│ sala  │    voxel uniforme (0.5m): paredes do
+    │        │█│       │    shaft recebem EXTERIOR (flood-fill
+    │────────┤█├───────│    desce pelo shaft) — correto por
+    │ garag. │█│ depos.│    acidente, mas ray casting também
+    └──────────────────┘    falha aqui pela mesma razão que no
+                            caso 1
+```
+
+**Voxel uniforme (0.5m)**: paredes internas do *shaft* são erroneamente classificadas como exterior porque o *flood-fill* atravessa o duto. Pode ser mitigado reduzindo `voxel-size`, mas isso multiplica o custo global por 8×.
+
+**Hierarchical Voxel Flood-Fill**: refina adaptativamente apenas na vizinhança da casca do *shaft*. A resolução fina onde a geometria exige não paga o custo global — **motivação direta para a contribuição da Fase 8**.
+
+**Ray casting**: falha análoga ao caso 1 (raio horizontal intercepta a parede oposta do *shaft*).
+
+### Caso 4 — `FillGaps` e malhas imperfeitas
+
+Modelos IFC reais frequentemente têm malhas com *gaps* de 1 voxel na casca (ver §5 de `IFC_BuildingEnvExtractor_Evaluation.md`): triângulos não se encontram perfeitamente nas arestas, erros de *tessellation* do OCCT, etc.
+
+```
+    após rasterização                  após FillGaps()
+    ┌──────────────────┐              ┌──────────────────┐
+    │░░░░░░░░░░░░░░░░░░│              │░░░░░░░░░░░░░░░░░░│
+    │░██████ ██████████│  gap de      │░████████████████░│
+    │░█             ·█░│  1 voxel     │░█   · · · · · █░│
+    │░█   · · · · · █░│  na casca ──▶│░█   · · · · · █░│  casca
+    │░█             ·█░│  (vazamento  │░█             ·█░│  selada
+    │░███████████████░│  do exterior)│░███████████████░│
+    │░░░░░░░░░░░░░░░░░░│              │░░░░░░░░░░░░░░░░░░│
+    └──────────────────┘              └──────────────────┘
+
+    ░ = Exterior   █ = Occupied   · = Interior
+```
+
+**Voxel *flood-fill* com `FillGaps`**: voxels `Unknown` cercados por 6 vizinhos face-adjacentes `Exterior` são promovidos a `Exterior` iterativamente. Fecha *gaps* de até 1 voxel sem mudar a topologia real.
+
+**Ray casting**: sem mecanismo análogo — um *gap* na malha gera falsos positivos diretos (raio escapa por uma fresta que não existe no modelo físico).
+
+### Por que isso sustenta a escolha da contribuição
+
+- Os casos 1 e 3 isolam exatamente onde *ray casting* falha: **topologia aberta em escalas pequenas**. *Ray casting* não vê o caminho de fuga; *flood-fill* volumétrico vê.
+- O caso 3 isola onde voxel **uniforme** é financeiramente proibitivo para resolver corretamente — o custo cresce cúbica com o refinamento. A contribuição original da Fase 8 ataca esse *tradeoff* preservando a robustez do *flood-fill*.
+- Todos os quatro casos geram rastreabilidade por `GlobalId` (o voxel mantém a lista de ocupantes durante a rasterização), alinhados com o critério da pergunta de pesquisa.
+
+---
+
+## Otimizações Futuras
+
+Backlog de melhorias que **não** estão no escopo da defesa de abr/2027, registradas aqui para documentação e para eventual continuidade pós-TCC.
+
+> *Hierarchical Voxel Flood-Fill* **não está neste backlog** — foi promovida para o escopo do trabalho como Fase 8 (contribuição original).
+
+- **Paralelismo na rasterização.** Cada triângulo marca voxels independentes; um `Parallel.For` sobre a lista de triângulos (com sincronização na escrita do `HashSet<string>` de ocupantes) dá *speedup* quase linear em modelos grandes. Cuidado com determinismo — exige ordenação final estável (ver §Determinismo do Método).
+- **SIMD no teste SAT triângulo-caixa.** A cascata de 13 eixos do Akenine-Möller (1997) é vetorizável via `System.Numerics.Vector<T>`: os três produtos escalares por eixo viram uma única instrução SIMD. Benefício esperado: ~3× no *hot loop* da rasterização.
+- **Ordenação Morton dos voxels.** Indexar voxels por curva de Morton (Z-order) em vez de `[x,y,z]` linear melhora a localidade de cache durante o *flood-fill* e a contagem de vizinhos. Útil apenas se *profiling* apontar cache miss dominante.
+- **Voxelização em GPU.** Shader de rasterização que escreve diretamente no *grid* de voxels 3D (técnica do `Voxelization Toolkit` em OpenCL). Descarta compatibilidade CPU-only — aceito só se modelos maiores (>10⁵ elementos) forem priorizados.
+- **Terminação antecipada do *flood-fill*.** Parar `GrowExterior` quando todos os voxels `Occupied` adjacentes a exterior já foram tocados. Exige manter um contador de voxels de casca por elemento; complexidade adicional pode não valer o ganho (o *flood-fill* em si já é O(V) com constante pequena).
+- **Cache persistente de `ShapeGeometry`.** Re-executar o pipeline no mesmo IFC hoje re-triangula tudo via xBIM. Um cache em disco por `(file-hash, EntityLabel)` cortaria tempo de *iteration loop* em testes de regressão.
+
+Cada item entra como *issue* do repositório apenas se o *profiling* da Fase 3 (comparação Voxel × RayCasting) apontar o gargalo real.
 
 ---
 
@@ -873,6 +1016,14 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 - Contingência: se voxel em P2 falhar em fixtures com detalhes finos (ex: janelas <300mm) e não houver calibração satisfatória via `voxel-size`, reconsiderar voxel adaptativo ou (última opção) RayCasting como primária. Decisão documentada em novo ADR caso necessário.
 
 **Ameaças à validade (registrar na dissertação).** Dropar Normais significa perder o baseline "trivial" clássico. Mitigação narrativa: RayCasting é baseline mais forte — argumento na banca será *"comparamos com método state-of-the-art validado, não com heurística ingênua"*. Perda da análise "voxel como fallback": reformulada como *"voxel como primária por robustez, raycast como comparação de precisão"* — narrativa mais clara.
+
+**Atualização (2026-04-24) — revisão de método: 3-way comparison com contribuição original.**
+
+- A **Fase 8 — Hierarchical Voxel Flood-Fill** (17/jan → 13/mar/2027; 8 semanas) introduz uma terceira estratégia, implementada como **contribuição original do TCC**. Detalhamento no cronograma (§Fases) e em §Comportamento em casos geométricos chave.
+- `VoxelFloodFillStrategy` (uniforme) é **reenquadrada como ablation baseline**: mesma família algorítmica que a contribuição (flood-fill 3-fases de van der Vaart 2022), difere apenas na discretização espacial. Sustenta o argumento *"o ganho vem da hierarquia, não de truques ortogonais"*.
+- `RayCastingStrategy` (Ying 2022) **permanece como baseline externo** — caracteriza o tradeoff precisão-vs-robustez contra um método state-of-the-art de família algorítmica distinta.
+- A comparação no capítulo de Resultados passa a ser **3-way** (voxel uniforme vs. Hierarchical Voxel Flood-Fill vs. ray casting), ancorada na bateria de casos geométricos chave (poço de luz, átrio coberto, eixo estreito, `FillGaps`).
+- Esta atualização **não invalida** as decisões originais de ADR-14: mantém Voxel como família primária, mantém RayCasting apenas como baseline de comparação, mantém Normais descartada.
 
 ### ADR-15 — Adoção do framework LoD (Biljecki/van der Vaart)
 
@@ -1161,35 +1312,35 @@ Arquivos prontos para uso local (já copiados para `data/models/`):
 
 ---
 
-### Fase 2 — P2: Validação da detecção + debug visual (01/mai → 12/jun/2026) · 6 semanas
+### Fase 2 — P2: Validação da detecção + debug visual ✅ (concluída — abr/2026, adiantada)
 
 **Meta:** Pipeline de detecção validado quantitativamente e inspecionável visualmente no debug-viewer.
 **Referência canônica:** van der Vaart (2022) — IFC_BuildingEnvExtractor. Código-fonte em `Ferramentas/BuildingEnvExtractor/`.
-**Critério de sucesso:** contagens TP/FP/FN/TN + Precision/Recall reportadas para ≥ 1 fixture IFC, com thresholds de aceitação calibrados após a primeira medição — **stage gate para P4.3 e P5**; P4.1 e P4.2 podem iniciar independentemente do gate; voxels inspecionáveis no debug-viewer por fase (rasterize → exterior → interior → void). Escolha metodológica: avaliação por contagem (estilo van der Vaart 2022) + Precision/Recall (Ying 2022); F1 e Kappa foram descartados por não aparecerem nas referências canônicas (ver ADR-12 nota).
+**Critério de sucesso:** ✅ contagens TP/FP/FN/TN + Precision/Recall reportadas para `duplex.ifc` via `EvaluationPipeline` — **stage gate para P4.3 e P5** liberado; P4.1 e P4.2 podem iniciar independentemente do gate; voxels inspecionáveis no debug-viewer por fase (rasterize → exterior → interior → void). Escolha metodológica: avaliação por contagem (estilo van der Vaart 2022) + Precision/Recall (Ying 2022); F1 e Kappa foram descartados por não aparecerem nas referências canônicas (ver ADR-12 nota).
 
 **Detecção (Stage 1) — P2:**
-- [ ] `GeometricOps`: plane fitting via `g4.OrthogonalPlaneFit3` (ADR-13), face normals via `g4.MeshNormals`, building bbox
+- [x] Operações geométricas — refatoradas como extension methods em `Core/Extensions/` (commit `f179d26`); `GeometricOps` estático foi descartado
 - [x] `VoxelGrid3D` — grade 3D com estado por voxel + provenance de ocupantes; SAT triângulo-AABB próprio (Akenine-Möller 1997 — `g4.IntrTriangle3Box3` ausente em geometry4sharp)
 - [x] `PcaFaceExtractor : IFaceExtractor` — agrupamento por normal + distância + fit PCA via `OrthogonalPlaneFit3`
 - [x] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` (ADR-14); `PcaFaceExtractor` integrado para faces de elementos exteriores
-- [ ] **Instrumentação de debug** (ADR-17): `GeometryDebug.Voxels()` por fase; `GeometryDebug.Mesh()` por elemento classificado
+- [x] **Instrumentação de debug** (ADR-17): `GeometryDebug.Voxels()` por fase (occupied/exterior/interior) + `GeometryDebug.Element()` por elemento classificado — integrados em `VoxelFloodFillStrategy`
 - [x] `DetectionResult` (Envelope + ElementClassification[]) — concluído em P1
-- [ ] Determinismo: seed fixa, ordenação estável (§ Determinismo)
+- [x] Determinismo: ordenação estável por `GlobalId` com `StringComparer.Ordinal` em `VoxelFloodFillStrategy`; sem fontes de aleatoriedade no pipeline atual
 
 **Debug (Geometry) — ADR-17:**
-- [ ] Implementar `GeometryDebug.Flush()` via `SharpGLTF.Toolkit` — serializa formas acumuladas para `%TEMP%\ifc-debug-output.gltf`
+- [x] Arquitetura de serialização — entregue **diferente do plano original**: em vez de `GeometryDebug.Flush()` escrever glTF em `%TEMP%` com viewer fazendo polling, `DebugSession` mantém o estado e serve um GLB via HTTP server em processo helper OS separado (commit `3148c34`); viewer faz polling do endpoint 5×/s. Ver bloco de atualização em ADR-17.
 - [x] `Voxels()` + `VoxelsShape` adicionados após integração do `feat/phase2-voxel`
-- [ ] `tools/debug-viewer/index.html` — HTML+three.js com polling de `%TEMP%\ifc-debug-output.gltf` a cada 1 segundo
+- [x] `tools/debug-viewer/` — HTML + three.js modular (6 arquivos: `index.html` + `js/main.js`, `renderer.js`, `layers.js`, `materials.js`, `picking.js`); auto-start via `dotnet run` (commit `dfc2c2a`); picking por voxel+elemento (commit `f09b7f9`)
 
 **Validação quantitativa (Cli) — P2:**
-- [ ] Smoke test: `detect duplex.ifc` → console com contagem de elementos exterior/interior
-- [ ] CSV ground-truth loader + contagens TP/FP/FN/TN + Precision/Recall
-- [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
+- [x] Smoke test: `detect duplex.ifc` → console com contagem de elementos exterior/interior + TP/FP/FN/TN + Precision/Recall (`Program.cs`)
+- [x] CSV ground-truth loader + contagens TP/FP/FN/TN + Precision/Recall (`Core/Pipeline/Evaluation/`: `GroundTruthCsvReader`, `DetectionCounts`, `MetricsCalculator`, `EvaluationResult`)
+- [x] `EvaluationPipeline` — orquestrador IFC+GT → `EvaluationResult` (`Ifc/Evaluation/`)
+- [x] `GroundTruthGenerator` — utilitário de síntese (`Ifc/Evaluation/`)
+- [x] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics — configurado em `Program.cs` e propagado para `XbimServices`
 
-**Marco paralelo — Spike Viewer (1 semana, mai/2026):**
-- [ ] Blazor Server scaffold + three.js interop
-- [ ] Carregar 1 mesh + render + click → GlobalId no servidor
-- [ ] Confirma viabilidade do Viewer MVP para P6 (nota: decisão de absorção pelo debug-viewer fica para Fase 5, ver ADR-07 revisado + ADR-16)
+**Marco paralelo — Spike Viewer: cancelado.**
+Blazor Server + three.js interop foi planejado para validar viabilidade do Viewer MVP de P6. O debug-viewer modular entregue em P2 (HTTP server + three.js + picking por elemento/voxel) já cobre o caso de uso "carregar mesh + render + click → GlobalId", tornando o spike redundante. A decisão de absorção do Viewer MVP pelo debug-viewer, antes prevista para Fase 5 (ADR-07 revisado + ADR-16), pode ser antecipada quando P6 for planejado em detalhe.
 
 ---
 
@@ -1297,24 +1448,54 @@ Nesta fase, avaliar o estado do `tools/debug-viewer/` (entregue em Fase 3):
 
 ---
 
-### Fase 8 — Ground Truth & Avaliação Experimental (out/2026 – jan/2027, paralela)
+### Fase 8 — *Hierarchical Voxel Flood-Fill* (contribuição original) (17/jan → 13/mar/2027) · 8 semanas
+
+**Meta:** implementar a estratégia de voxelização hierárquica e comparar com as duas baselines (Uniforme, *Ray Casting*) em precisão, *recall* e tempo de execução.
+**Referência canônica:** van der Vaart (2022) para o *flood-fill* 3-fases; contribuição metodológica original para a hierarquia adaptativa e os critérios de refinamento.
+**Pré-requisito:** Fases 3 (baseline *Ray Casting*) e 5 (agrupamento de fachadas) concluídas. *Ground truth* da Fase 6 (ver numeração renumerada abaixo) já disponível em ≥3 modelos.
+**Critério de sucesso:** (a) 3 estratégias rodam sobre os mesmos fixtures; (b) tabela com contagens TP/FP/FN/TN + Precisão/Recall + tempo de execução por estratégia × modelo; (c) análise por caso geométrico (poço de luz, *shaft* estreito) mostra onde cada estratégia falha ou acerta; (d) seção de Resultados da dissertação inclui a comparação 3-vias como figura principal da contribuição.
+
+**P8.1 — Estrutura hierárquica de voxels (3 semanas)**
+Ref: estruturas adaptativas (octree); ADR-13 (sem dependência externa).
+- [ ] `HierarchicalVoxelGrid` — octree com níveis `L0 → L1 → ... → Lmax`; célula-folha carrega o mesmo estado (`Unknown/Occupied/Exterior/Interior/Void`) e lista de ocupantes por `GlobalId` já usados em `VoxelGrid3D`
+- [ ] Critério de refinamento: célula na resolução `Li` refina para `Li+1` se `Occupied` **e** vizinhança contém mistura de estados (heurística inicial; calibrar empiricamente)
+- [ ] Testes unitários da estrutura de dados (`IsInBounds`, `Neighbors*`, `WorldToCell`, transição entre níveis)
+
+**P8.2 — `HierarchicalVoxelFloodFillStrategy` (3 semanas)**
+- [ ] `HierarchicalVoxelFloodFillStrategy : IDetectionStrategy` — mesmo contrato de saída (`DetectionResult`)
+- [ ] Rasterização multi-nível: SAT triângulo-caixa reutiliza `Core/Extensions/AxisAlignedBox3dExtensions` (Fase 2); nenhuma matemática nova
+- [ ] *Flood-fill* atravessando níveis (propagação exterior desce nas folhas refinadas e sobe nas células grossas do espaço livre)
+- [ ] Instrumentação `GeometryDebug` por nível + por fase (ADR-17) — crítica para *debug* visual no viewer
+- [ ] Determinismo: ordenação estável por `GlobalId` na classificação final (mesma política de `VoxelFloodFillStrategy`)
+
+**P8.3 — Comparação 3-vias + escrita dos Resultados (2 semanas)**
+- [ ] `EvaluationPipeline` ampliado: executa 3 estratégias sobre o mesmo `ModelLoadResult`, compila tabela comparada
+- [ ] Cobertura dos casos geométricos chave: pelo menos 1 *fixture* com poço de luz aberto, 1 com *shaft* de instalações, 1 com átrio coberto (ver §Comportamento em casos geométricos chave)
+- [ ] Escrita da seção de Resultados: tabela 3-vias + discussão por caso + *ameaças à validade*
+- [ ] Figura principal da contribuição: lado-a-lado dos três *grids* finais em um modelo com poço de luz
+
+> Se a variante hierárquica **não** superar a uniforme em nenhuma métrica, a dissertação relata o resultado negativo e reforça o *flood-fill* uniforme como estado-da-arte prático — ainda é contribuição publicável (ablação rigorosa). Ver §Ameaças à validade.
+
+---
+
+### Fase 9 — *Ground Truth* & Avaliação Experimental (out/2026 – jan/2027, paralela) *(renumerada — era Fase 8)*
 **Meta:** validar o método contra rótulos manuais de especialistas.
-**Critério de sucesso:** tabela com contagens TP/FP/FN/TN + Precision/Recall por modelo e por tipologia; ≥75% de concordância simples (percent agreement) entre especialistas na rotulação.
+**Critério de sucesso:** tabela com contagens TP/FP/FN/TN + Precision/Recall por modelo e por tipologia; ≥75% de concordância simples (*percent agreement*) entre especialistas na rotulação.
 
 - [ ] Selecionar 3–5 modelos IFC de tipologias diferentes (planta retangular, L, curva/irregular)
 - [ ] Protocolo de rotulação (critérios, ferramenta — provavelmente Viewer MVP, resolução de divergências)
 - [ ] Recrutar 5+ profissionais AEC
-- [ ] Percent agreement entre especialistas (contagem direta de rótulos concordantes / total)
+- [ ] *Percent agreement* entre especialistas (contagem direta de rótulos concordantes / total)
 - [ ] Tabela de resultados para a dissertação
 
 ---
 
-### Fase 9 — Entrega (jan–fev/2027)
+### Fase 10 — Entrega (mar–abr/2027) *(renumerada — era Fase 9)*
 **Meta:** finalizar documentação, testes de usabilidade e publicação.
-**Critério de sucesso:** defesa da Etapa 4 em 05/02/2027; repositório público e reproduzível.
+**Critério de sucesso:** defesa da Etapa 4 em abr/2027; repositório público e reproduzível.
 
 - [ ] Testes de usabilidade do Viewer com ≥3 especialistas AEC
-- [ ] README final (instalação, uso, exemplos, workaround Google Drive)
+- [ ] README final (instalação, uso, exemplos, *workaround* Google Drive)
 - [ ] Publicação no GitHub como repositório público
 - [ ] Artefatos da dissertação: tabelas de resultado, figuras, links para reprodução
 
