@@ -132,15 +132,17 @@ Relação BuildingElement ↔ BuildingElementGroup: MUITOS-PARA-UM (opcional)
 
 > Implementação em `src/IfcEnvelopeMapper.Core/Surface/Facade.cs`
 
-### Interfaces do pipeline
+### Interfaces e tipos de pipeline
 
-> Implementações em `src/IfcEnvelopeMapper.Core/Loading/` (`IModelLoader`, `IElementFilter`, `DefaultElementFilter`), `Detection/` (`IDetectionStrategy`), `Grouping/` (`IFacadeGrouper`)
+> Tipos em `src/Core/Pipeline/Loading/` (`ModelLoadResult`, `DefaultElementFilter`) e `Pipeline/Detection/` (`IDetectionStrategy`, `IFaceExtractor`, `DetectionResult`, `ElementClassification`).
+>
+> Reorganização 2026-04-23: as interfaces `IModelLoader`, `IElementFilter`, `IIfcProductResolver` e `IFacadeGrouper` foram removidas — eram interfaces com implementação única (`XbimModelLoader`, `DefaultElementFilter`, `XbimIfcProductResolver`) ou sem nenhuma implementação (`IFacadeGrouper`, planejada para P5). Quando segunda implementação for necessária (ex.: `RayCastingStrategy` baseline para `IDetectionStrategy`), a interface volta naturalmente.
 
 ### Acesso cru ao IIfcProduct (ADR-10)
 
-Mora na camada Ifc. Viewer, Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
+Mora na camada Ifc. Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
 
-> Implementações em `src/IfcEnvelopeMapper.Ifc/Resolver/IIfcProductResolver.cs` e `XbimIfcProductResolver.cs`
+> Implementação em `src/Ifc/Resolver/XbimIfcProductResolver.cs` (classe selada; sem interface — apenas `IDisposable`).
 
 Index em `Dictionary` evita busca linear em modelos com milhares de elementos. Lifetime: o resolver precisa do `IfcStore` aberto; gerenciar via `using` ou escopo de DI.
 
@@ -150,7 +152,9 @@ Index em `Dictionary` evita busca linear em modelos com milhares de elementos. L
 
 ---
 
-## Estrutura do Projeto (8 projetos + testes)
+## Estrutura do Projeto (5 projetos src + 1 testes)
+
+> Reorganização 2026-04-23 (Opção C com refinamento Domain/Pipeline + extension methods): pastas curtas (`src/Core`, `src/Engine`…) com `RootNamespace` + `AssemblyName` mantendo o prefixo `IfcEnvelopeMapper.*` para namespaces e DLLs. `Core` agrupa todo conteúdo conceitual (domínio + pipeline + matemática como extensions); `Engine` fica restrito ao que tem dependência pesada (estratégias + visualização SharpGLTF).
 
 ```
 IfcEnvelopeMapper/
@@ -159,114 +163,60 @@ IfcEnvelopeMapper/
 ├── scripts/
 │   └── run-from-temp.ps1                 ← workaround Google Drive Streaming (xBIM native DLLs)
 ├── tools/
-│   └── debug-viewer/                     ← HTML + three.js local (ADR-16, Fase 3)
+│   └── debug-viewer/                     ← HTML + three.js local (ADR-16/17)
 │       └── index.html
 │
 ├── src/
-│   ├── IfcEnvelopeMapper.Core/           ← domínio puro + interfaces (ports)
-│   │   ├── Element/                      ← átomos e agregadores
-│   │   │   ├── BuildingElement.cs        ← átomo classificável (ADR-11)
-│   │   │   ├── BuildingElementGroup.cs   ← agregador organizacional (ADR-11)
-│   │   │   └── BuildingElementContext.cs ← record struct: Site/Building/Storey IDs (ADR-08)
-│   │   ├── Surface/                      ← superfícies inferidas (Envelope, Facade, Face)
-│   │   │   ├── Envelope.cs
-│   │   │   ├── Facade.cs
-│   │   │   └── Face.cs                   ← Element + TriangleIds + FittedPlane (ADR-04)
-│   │   ├── Loading/                      ← carregamento e filtragem
-│   │   │   ├── IModelLoader.cs
-│   │   │   ├── ModelLoadResult.cs        ← record (Elements, Groups) (ADR-11)
-│   │   │   ├── IElementFilter.cs         ← filtro de tipos IFC (ADR-05)
-│   │   │   └── DefaultElementFilter.cs
-│   │   ├── Detection/                    ← Stage 1 — detecção + extração de faces
-│   │   │   ├── IDetectionStrategy.cs
-│   │   │   ├── IFaceExtractor.cs         ← BuildingElement → Face[] (PCA coplanar)
-│   │   │   ├── DetectionResult.cs
-│   │   │   └── ElementClassification.cs
-│   │   ├── Grouping/                     ← Stage 2 — agrupamento em fachadas
-│   │   │   └── IFacadeGrouper.cs
+│   ├── Core/                             ← domínio + pipeline + math primitives. Zero infraestrutura.
+│   │   ├── Domain/                       ← entidades e tipos de valor
+│   │   │   ├── Element/                    BuildingElement, Group, Context (ADR-08, ADR-11)
+│   │   │   ├── Surface/                    Envelope, Facade, Face (ADR-04)
+│   │   │   └── Voxel/                      VoxelGrid3D, VoxelCoord, VoxelState
+│   │   ├── Pipeline/                     ← contratos e tipos de cada estágio do pipeline
+│   │   │   ├── Loading/                    ModelLoadResult, DefaultElementFilter (ADR-05)
+│   │   │   ├── Detection/                  IDetectionStrategy, IFaceExtractor, DetectionResult, ElementClassification
+│   │   │   └── Evaluation/                 DetectionCounts, GroundTruthRecord, EvaluationResult,
+│   │   │                                   MetricsCalculator, GroundTruthCsvReader
+│   │   └── Extensions/                   ← extension methods sobre tipos de Core e g4
+│   │                                       BuildingElementExtensions  → IEnumerable<BuildingElement>.BoundingBox()
+│   │                                       Vector3dExtensions         → IEnumerable<Vector3d>.FitPlane(), Vector3d.ToSphere()
+│   │                                       DMesh3Extensions           → IEnumerable<DMesh3>.Merge(), DMesh3.ExtractTriangles()
+│   │                                       Plane3dExtensions          → Plane3d.ToQuadMesh()
+│   │                                       VoxelGrid3DExtensions      → VoxelGrid3D.CubesAt()
+│   │                                       AxisAlignedBox3dExtensions → AxisAlignedBox3d.ToCube(), .ToWireframe()
 │   │   [deps: geometry4Sharp]
 │   │
-│   ├── IfcEnvelopeMapper.Geometry/       ← operações geométricas stateless (Operations, Primitives, Voxel)
-│   │   [deps: Core, geometry4Sharp, NetTopologySuite]
+│   ├── Engine/                           ← estratégias de detecção + visualização debug
+│   │   ├── Strategies/                   ← PcaFaceExtractor, VoxelFloodFillStrategy (ADR-14)
+│   │   └── Visualization/                ← GeometryDebug ([Conditional("DEBUG")]), DebugSession,
+│   │                                       GltfSerializer, DebugShape, IfcTypePalette,
+│   │                                       SidecarWriter, AtomicFile (ADR-17)
+│   │   [deps: Core, SharpGLTF.Toolkit; DebugServer build-ordering only]
 │   │
-│   ├── IfcEnvelopeMapper.Ifc/            ← integração xBIM
-│   │   ├── Loading/
-│   │   │   ├── XbimModelLoader.cs        ← implementa IModelLoader
-│   │   │   ├── IfcLoadException.cs
-│   │   │   └── IfcGeometryException.cs
-│   │   └── Resolver/
-│   │       ├── IIfcProductResolver.cs    ← acesso cru ao IIfcProduct (ADR-10)
-│   │       └── XbimIfcProductResolver.cs
-│   │   [deps: Core, Xbim.Essentials, Xbim.Geometry]
+│   ├── Ifc/                              ← integração xBIM
+│   │   ├── Loading/                      ← XbimModelLoader, IfcLoadException, IfcGeometryException
+│   │   ├── Resolver/                     ← XbimIfcProductResolver
+│   │   └── Evaluation/                   ← GroundTruthGenerator, EvaluationPipeline
+│   │   [deps: Core, Xbim.Essentials, Xbim.Geometry, Xbim.ModelGeometry.Scene]
 │   │
-│   ├── IfcEnvelopeMapper.Algorithms/     ← estratégias de detecção + agrupamento
-│   │   ├── Strategies/
-│   │   │   ├── VoxelFloodFillStrategy.cs ← primária (ADR-14)
-│   │   │   └── RayCastingStrategy.cs     ← baseline de comparação P4 (ADR-14)
-│   │   └── Grouping/
-│   │       └── DbscanFacadeGrouper.cs    ← implementa IFacadeGrouper
-│   │   [deps: Core, Geometry, DBSCAN, QuikGraph]
+│   ├── DebugServer/                      ← EXE separado — viewer HTTP fora do processo (ADR-17)
+│   │   └── Program.cs                    ← HttpListener loopback :5173, watchdog parent-PID
+│   │   [deps: nenhuma — spawned via Process.Start por Engine.Visualization.DebugSession]
 │   │
-│   ├── IfcEnvelopeMapper.Lod/            ← geradores de LoD (ADR-15, Biljecki/van der Vaart)
-│   │   ├── ILodGenerator.cs              ← contrato: DetectionResult + Facade[] → LodOutput
-│   │   ├── LodOutput.cs                  ← record (LodId, Semantic, Geometry, Provenance)
-│   │   ├── LodRegistry.cs                ← resolve "3.2" → Lod32SemanticShellGenerator
-│   │   ├── Footprint/
-│   │   │   ├── Lod00FootprintXY.cs       ← projeção XY (não convex hull)
-│   │   │   └── Lod02StoreyFootprints.cs
-│   │   ├── Block/
-│   │   │   ├── Lod10ExtrudedBbox.cs
-│   │   │   └── Lod12StoreyBlocks.cs
-│   │   ├── Roof/
-│   │   │   └── Lod22DetailedRoofWallsStoreys.cs
-│   │   ├── Facade/
-│   │   │   └── Lod32SemanticShell.cs     ← core do TCC: Facade[] + Face semantic
-│   │   └── Full/
-│   │       ├── Lod40ElementWise.cs
-│   │       ├── Lod41ExteriorElements.cs
-│   │       └── Lod42MergedSurfaces.cs
-│   │   [deps: Core, Geometry, NetTopologySuite]
-│   │
-│   ├── IfcEnvelopeMapper.Debug/          ← debug geométrico (ADR-17)
-│   │   ├── GeometryDebug.cs              ← API de instrumentação (Camada A) — [Conditional("DEBUG")]
-│   │   ├── GltfSerializer.cs             ← serializa shapes para C:\temp\ifc-debug-output.glb
-│   │   ├── DebugViewerServer.cs          ← HttpListener loopback em :5173 (Camada B)
-│   │   ├── DebugShape.cs                 ← Mesh/Lines/Points records
-│   │   └── IfcTypePalette.cs             ← cores por IfcType
-│   │   [deps: Core, Geometry, SharpGLTF.Toolkit]
-│   │
-│   ├── IfcEnvelopeMapper.Cli/            ← entry point, output writers
-│   │   ├── Commands/
-│   │   │   ├── DetectCommand.cs          ← orquestra o pipeline
-│   │   │   └── DebugVoxelCommand.cs      ← dump voxel como PLY/OBJ (Fase 2)
-│   │   ├── Output/
-│   │   │   ├── JsonReportWriter.cs       ← usa ILodGenerator por --lod
-│   │   │   └── BcfWriter.cs              ← mantido em paralelo ao Viewer (ADR-06)
-│   │   └── Program.cs
-│   │   [deps: Core, Ifc, Algorithms, Lod, Debug, System.CommandLine, Microsoft.Extensions.Logging]
-│   │
-│   └── IfcEnvelopeMapper.Viewer/         ← visualizador web Blazor + three.js (ADR-07 — stretch)
-│       ├── Components/                   ← render 3D, inspeção por elemento
-│       ├── Editing/                      ← edição manual de rotulação (isolada do Core)
-│       └── Export/                       ← BCF export (via iabi.BCF ou equivalente)
-│       [deps: Core, Ifc, Algorithms, iabi.BCF]
-│       [nota: ADR-07 ainda stretch goal; decisão em Fase 7 sobre possível absorção pelo debug-viewer — ver ADR-07]
+│   └── Cli/                              ← entry point, output writers
+│       └── Program.cs                    ← parse args → EvaluationPipeline.EvaluateDetection() → print
+│       [deps: Core, Ifc, Engine, System.CommandLine, Microsoft.Extensions.Logging]
 │
 ├── tests/
-│   └── IfcEnvelopeMapper.Tests/          ← xUnit + FluentAssertions
-│       ├── Core/
-│       │   ├── Detection/               ← DetectionResult, ElementClassification
-│       │   ├── Element/                 ← BuildingElement, Group, Context
-│       │   ├── Loading/                 ← DefaultElementFilter
-│       │   └── Surface/                 ← Face, Envelope, Facade
-│       ├── Ifc/
-│       │   └── Loading/                 ← XbimModelLoader (integração)
-│       ├── Algorithms/                  ← strategies + grouper implementations
-│       ├── Lod/                         ← geradores por LoD level
-│       └── Regression/                  ← snapshot tests (expected-report.json)
+│   └── Tests/                            ← xUnit + FluentAssertions (66 testes: 64 unit + 2 integration)
+│       ├── Core/                         ← Element, Loading, Surface, Detection, Domain/Voxel (unit)
+│       ├── Engine/                       ← Strategies/ (unit em meshes sintéticos)
+│       ├── Ifc/                          ← XbimModelLoader (integration vs duplex.ifc)
+│       ├── Integration/                  ← EvaluationPipelineTests (golden + visual GLB on failure)
+│       └── Fixtures/                     ← IfcModelFixture (xUnit IClassFixture compartilhando duplex.ifc)
 │
 ├── data/
-│   ├── models/                           ← arquivos IFC para testes
+│   ├── models/                           ← arquivos IFC de teste
 │   ├── results/                          ← outputs JSON gerados pela CLI
 │   ├── debug/                            ← glTF/PLY gerados pela flag --debug
 │   └── ground-truth/                     ← rotulação manual por especialistas (CSV)
@@ -275,33 +225,37 @@ IfcEnvelopeMapper/
 └── README.md
 ```
 
-### Por que 8 projetos?
+### Por que 5 projetos?
 
-`Core` concentra o domínio e as interfaces de pipeline — tudo sem depender de infraestrutura (exceto `geometry4Sharp` para tipos geométricos). `Geometry` isola operações geométricas puras, reutilizáveis entre strategies. `Ifc` encapsula toda a complexidade do xBIM — tanto o carregamento quanto o acesso ad-hoc a metadados IFC via `IIfcProductResolver` (ADR-10) —, e pode ser substituído por outra biblioteca de leitura IFC sem tocar o domínio. `Algorithms` contém as strategies e o agrupamento — a parte mais experimental do projeto. `Lod` (ADR-15) implementa os 10 geradores do framework Biljecki/van der Vaart — cada LoD é um `ILodGenerator` que consome `DetectionResult + Facade[]` e produz saída no formato natural daquele nível (Polygon 2D, DMesh3, voxel grid). `Debug` (ADR-17) é um placeholder reservado para utilitários opcionais de serialização futura — `GeometryDebug` (`#if DEBUG`) vive em `Geometry`. `Cli` é um dos dois pontos de entrada e o lugar dos writers de relatório (JSON + BCF) e do comando `debug-voxel` para LoD 5 via debug. `Viewer` é o segundo ponto de entrada: visualizador web que consome o mesmo JSON produzido pela CLI e permite render, inspeção, edição manual de rotulação e export BCF complementar (ADR-07 — stretch; decisão de absorção em Fase 5, ver ADR-16).
+`Core` concentra todo o conteúdo conceitual do trabalho. `Domain/` agrupa as entidades e tipos de valor que um leitor AEC reconhece (paredes, lajes, fachadas, voxels). `Pipeline/` agrupa os contratos e tipos de cada estágio do pipeline (carregamento, detecção, avaliação). `Extensions/` traduz as primitivas matemáticas em chamadas idiomáticas (`elements.BoundingBox()`, `mesh.ExtractTriangles(ids)`, `points.FitPlane()`, `box.ToWireframe()` etc.) — substitui as antigas classes utilitárias estáticas (GeometricPrimitives, MeshOperations, GeometricOperations) por extension methods que leem como verbos sobre os tipos. Dependência única: `geometry4Sharp` (tipos `DMesh3`, `Vector3d`).
 
-### Dependency Inversion
+`Engine` fica restrito ao que tem dependência pesada: as estratégias de detecção (que importam `Core`) e a infraestrutura de visualização debug (`GeometryDebug` + `GltfSerializer` + `DebugSession` + `SidecarWriter` + `IfcTypePalette` + `AtomicFile`). A separação reflete o critério "se não tem dependência pesada, vai pro Core".
 
-**`IModelLoader` fica em Core, não em Ifc.** A interface pertence ao consumidor, não ao provedor. `XbimModelLoader` implementa `IModelLoader` e fica em Ifc; Core não sabe que xBIM existe.
+`Ifc` isola tudo que toca xBIM. `XbimModelLoader` produz `ModelLoadResult` (tipos de Core); `EvaluationPipeline` orquestra o caminho completo (load → ground truth → detect → metrics) sem expor xBIM aos consumidores. Trocar a biblioteca de leitura IFC no futuro toca apenas este projeto.
 
-**`IFacadeGrouper` e `IDetectionStrategy` ficam em Core, não em Algorithms.** `DbscanFacadeGrouper` e as strategies implementam as interfaces e ficam em Algorithms.
+`DebugServer` é um EXE standalone — não referência gerenciada — porque o debugger .NET com política `Suspend: All` congela toda a thread do processo no breakpoint, incluindo qualquer servidor HTTP in-process. Rodar o viewer em outro processo do SO mantém o GLB respondendo enquanto o algoritmo está pausado em F10 (ADR-17).
 
-**`IElementFilter` fica em Core** (ADR-05). `DefaultElementFilter` com lista padrão fica em Core; `XbimModelLoader` recebe a instância por construtor.
+`Cli` é um wrapper fino: parsing de argumentos, chamada de `EvaluationPipeline`, formatação de saída. ~80 linhas. Sem lógica de domínio, sem orquestração de pipeline — tudo isso vive em `Ifc/Evaluation/EvaluationPipeline` ou nas estratégias em `Engine`.
 
-**`IIfcProductResolver` fica em Ifc, não em Core** (ADR-10). A interface existe para permitir que Viewer, Cli ou testes acessem o `IIfcProduct` cru sem acoplar Core ao xBIM — quem importa o resolver já depende de xBIM por definição.
-
-**Sem `IReportWriter` em Core.** A CLI produz um `DetectionResult` e chama writers concretos. Nenhuma abstração é necessária neste ponto.
-
-### Diagrama de dependências (sem circular)
+### Diagrama de dependências (sem ciclo)
 
 ```
-Core ← Geometry ← Algorithms ──┐
-Core ← Ifc ────────────────────┤
-Core ← Lod ────────────────────┼─→ Cli, Viewer
-Core ← Debug ──────────────────┘
-Core ────────────────────────────
+       Core (leaf — domínio + pipeline + extensions)
+       ↑       ↑
+       |       |
+     Ifc     Engine (estratégias + visualização)
+       ↑       ↑
+       └───┬───┘
+           |
+          Cli
+
+DebugServer é spawned via Process.Start por Engine.Visualization.DebugSession.
+Não é referência gerenciada — fica fora do grafo de deps.
 ```
 
-`Viewer` depende de `Core + Ifc + Algorithms + Lod + Debug` mas não é dependência de ninguém. `Cli` depende de todos (exceto Viewer). `Tests` depende de todos os projetos de `src/`. Debug geométrico é acessado diretamente via `GeometryDebug.Mesh(...)` etc. — sem configuração; `#if DEBUG` garante zero overhead em Release (ADR-17).
+`Tests` depende de `Core + Ifc + Cli + Engine`. Debug geométrico é acessado via `GeometryDebug.Mesh(...)` etc. — `[Conditional("DEBUG")]` em cada método público garante eliminação total das chamadas em Release (zero IL nos call sites).
+
+> **Pendente neste projeto** (não implementado ainda): `RayCastingStrategy` (baseline ADR-14), `DbscanFacadeGrouper` (Stage 2 — Fase P5 set/2026), e os 10 geradores de LoD do framework Biljecki/van der Vaart (ADR-15, Fases P4–P6, ago–dez/2026). Quando criados, vivem em `Engine/Strategies/` (e `Engine/Grouping/` ou `Engine/Lod/` se justificar nova subpasta) — sem novo projeto.
 
 ---
 
@@ -311,7 +265,7 @@ Core ─────────────────────────
 IFC Model
     │
     ▼
-[XbimModelLoader — implements IModelLoader]
+[XbimModelLoader (sealed) — Load(path) → ModelLoadResult]
     │  IReadOnlyList<BuildingElement>
     ▼
 [Stage 1 — IDetectionStrategy.Detect()]
@@ -363,9 +317,9 @@ Facade[]
 // DetectCommand.cs — composition root
 // GeometryDebug (#if DEBUG) está sempre disponível sem configuração (ADR-17)
 
-var model    = loader.Load(modelPath);                        // IModelLoader → ModelLoadResult
+var model    = loader.Load(modelPath);                        // XbimModelLoader → ModelLoadResult
 var result   = strategy.Detect(model.Elements);               // IDetectionStrategy → DetectionResult
-var facades  = grouper.Group(result.Envelope);                // IFacadeGrouper → Facade[]
+var facades  = grouper.Group(result.Envelope);                // IFacadeGrouper (planejado P5) → Facade[]
 var lodOutputs = options.Lods                                 // ILodGenerator[] (ADR-15)
                     .Select(id => registry.Resolve(id).Generate(result, facades))
                     .ToList();
@@ -396,7 +350,7 @@ writer.WriteReports(report, outputPath);                      // 1 JSON por LoD 
 ```
 FUNÇÃO Load(ifcPath) → ModelLoadResult
     // Ref: xBIM Toolkit — Xbim3DModelContext (Lockley et al.)
-    // ADR-05: filtro injetado por construtor (IElementFilter)
+    // ADR-05: filtro injetado por construtor (DefaultElementFilter; interface removida 2026-04-23)
     // ADR-09: agregação IFC de building elements tem 2 níveis fixos
     // ADR-11: resultado separa átomos (Elements) de agregadores (Groups)
 

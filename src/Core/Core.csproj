@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>IfcEnvelopeMapper.Core</RootNamespace>
+    <AssemblyName>IfcEnvelopeMapper.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="geometry4Sharp" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

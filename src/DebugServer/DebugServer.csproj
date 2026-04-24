@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>IfcEnvelopeMapper.DebugServer</RootNamespace>
+    <AssemblyName>IfcEnvelopeMapper.DebugServer</AssemblyName>
+    <!--
+      No native apphost (.exe) — launch via `dotnet IfcEnvelopeMapper.DebugServer.dll`.
+      Writing an apphost on Google Drive Streaming fails intermittently with
+      "user-mapped section open" because GDrive's file provider holds a
+      memory-mapped view during sync. A DLL-only emit sidesteps that path.
+    -->
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+
+  <!--
+    No Content items here. The viewer HTML is flowed by IfcEnvelopeMapper.Engine,
+    which is what downstream consumers (Cli, Tests) actually reference. The
+    helper receives the resolved HTML path as a CLI arg — it does not look for
+    the file next to itself.
+  -->
+
+</Project>

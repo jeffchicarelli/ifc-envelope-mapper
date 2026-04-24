@@ -1,15 +1,12 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/IfcEnvelopeMapper.Algorithms/IfcEnvelopeMapper.Algorithms.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Cli/IfcEnvelopeMapper.Cli.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Core/IfcEnvelopeMapper.Core.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Debug/IfcEnvelopeMapper.Debug.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.DebugServer/IfcEnvelopeMapper.DebugServer.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Geometry/IfcEnvelopeMapper.Geometry.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Ifc/IfcEnvelopeMapper.Ifc.csproj" />
-    <Project Path="src/IfcEnvelopeMapper.Viewer/IfcEnvelopeMapper.Viewer.csproj" />
+    <Project Path="src/Cli/Cli.csproj" />
+    <Project Path="src/Core/Core.csproj" />
+    <Project Path="src/DebugServer/DebugServer.csproj" />
+    <Project Path="src/Engine/Engine.csproj" />
+    <Project Path="src/Ifc/Ifc.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/IfcEnvelopeMapper.Tests/IfcEnvelopeMapper.Tests.csproj" />
+    <Project Path="tests/Tests/Tests.csproj" />
   </Folder>
 </Solution>

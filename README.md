@@ -19,14 +19,14 @@ dotnet build --configuration Release
 dotnet test  --no-build --configuration Release
 ```
 
-At the time of writing: 7 projects, 64 unit tests, all green on CI.
+At the time of writing: 5 src projects + 1 test project, 66 tests (64 unit + 2 integration), all green on CI.
 
 ## Run the CLI
 
 ### Standard path (any local disk)
 
 ```bash
-dotnet run --project src/IfcEnvelopeMapper.Cli
+dotnet run --project src/Cli
 ```
 
 ### When the repo lives on Google Drive Streaming
@@ -39,29 +39,62 @@ pwsh scripts/run-from-temp.ps1
 
 ## Project layout
 
+Project folders use short names; assembly names and namespaces keep the `IfcEnvelopeMapper.*` prefix via `RootNamespace` / `AssemblyName` settings.
+
 ```
 src/
-  IfcEnvelopeMapper.Core/         Domain types and interfaces (Element/, Surface/, Loading/, Detection/, Grouping/)
-  IfcEnvelopeMapper.Geometry/     Geometric operations on DMesh3 (plane fitting, etc.)
-  IfcEnvelopeMapper.Algorithms/   Envelope detection and facade grouping strategies
-  IfcEnvelopeMapper.Ifc/          xBIM adapter: implements IModelLoader
-  IfcEnvelopeMapper.Lod/          LoD generators (ADR-15) — scaffolded
-  IfcEnvelopeMapper.Debug/        GeometryDebug API + GLB writer + local HTTP viewer server (ADR-17)
-  IfcEnvelopeMapper.Cli/          System.CommandLine executable
-  IfcEnvelopeMapper.Viewer/       Web viewer (Blazor + three.js) — scaffolded
+  Core/                           Domain types, pipeline interfaces, math primitives, extensions.
+    Domain/                         Element/ (BuildingElement, Group, Context),
+                                    Surface/ (Envelope, Facade, Face),
+                                    Voxel/   (VoxelGrid3D, VoxelCoord, VoxelState).
+    Pipeline/                       Loading/   (ModelLoadResult, DefaultElementFilter),
+                                    Detection/ (IDetectionStrategy, IFaceExtractor, DetectionResult, ElementClassification),
+                                    Evaluation/ (DetectionCounts, GroundTruthRecord, EvaluationResult,
+                                                 MetricsCalculator, GroundTruthCsvReader).
+    Extensions/                     6 extension classes — BuildingElement.BoundingBox(),
+                                    Vector3d.FitPlane()/.ToSphere(), DMesh3.Merge()/.ExtractTriangles(),
+                                    Plane3d.ToQuadMesh(), VoxelGrid3D.CubesAt(),
+                                    AxisAlignedBox3d.ToCube()/.ToWireframe().
+  Engine/                         Detection algorithms + visualization.
+    Strategies/                     PcaFaceExtractor, VoxelFloodFillStrategy.
+    Visualization/                  GeometryDebug ([Conditional("DEBUG")]), DebugSession,
+                                    GltfSerializer, DebugShape, IfcTypePalette,
+                                    SidecarWriter, AtomicFile.
+  Ifc/                            xBIM adapter.
+    Loading/                        XbimModelLoader, IfcLoadException, IfcGeometryException.
+    Resolver/                       XbimIfcProductResolver.
+    Evaluation/                     GroundTruthGenerator, EvaluationPipeline.
+  DebugServer/                    Standalone EXE — out-of-process HTTP viewer (ADR-17).
+                                  Spawned by Engine.Visualization.DebugSession; not a managed reference.
+  Cli/                            System.CommandLine entry point — thin wrapper around EvaluationPipeline.
 tools/
-  debug-viewer/                   three.js glTF viewer served by DebugViewerServer (ADR-17, Camada B)
+  debug-viewer/                   three.js glTF viewer served by DebugServer (ADR-17).
 tests/
-  IfcEnvelopeMapper.Tests/        xUnit + FluentAssertions
+  Tests/                          xUnit + FluentAssertions. 64 unit + 2 integration tests.
 docs/
-  plano.md                        Technical design, ADRs, and roadmap (PT-BR)
+  plano.md                        Technical design, ADRs, and roadmap (PT-BR).
 data/
-  models/                         Input IFC files
+  models/                         Input IFC files.
 scripts/
-  run-from-temp.ps1               Google Drive Streaming workaround
+  run-from-temp.ps1               Google Drive Streaming workaround.
 ```
 
-Dependency direction is unidirectional: `Core` does not depend on `Ifc`; `Algorithms` does not depend on `Cli`. Anything that touches xBIM lives inside `IfcEnvelopeMapper.Ifc`.
+Dependency direction is unidirectional and acyclic:
+
+```
+       Core (leaf — domain + math + extensions)
+       ↑       ↑
+       |       |
+     Ifc     Engine (strategies + visualization)
+       ↑       ↑
+       └───┬───┘
+           |
+          Cli
+
+DebugServer is process-spawned by Engine.Visualization, not a managed dependency.
+```
+
+Everything domain-shaped or math-shaped lives in `Core`. Anything that touches xBIM lives in `Ifc`. Detection strategies and the GLB-writing visualization stack live in `Engine`. `Cli` is the thin entry point; `DebugServer` is the standalone helper process.
 
 ## Documentation
 
