@@ -1,5 +1,10 @@
 namespace IfcEnvelopeMapper.Core.Pipeline.Loading;
 
+/// <summary>
+/// IFC-type allow-list controlling which entities the loader emits. The default set
+/// covers the constructive element types relevant to envelope detection; callers can
+/// pass a custom set (e.g., for specialized IFC profiles or reduced-scope runs).
+/// </summary>
 public sealed class DefaultElementFilter
 {
     private static readonly IReadOnlySet<string> DefaultTypes =

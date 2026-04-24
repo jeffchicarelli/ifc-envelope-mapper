@@ -3,6 +3,20 @@ using IfcEnvelopeMapper.Core.Domain.Element;
 
 namespace IfcEnvelopeMapper.Core.Domain.Surface;
 
+/// <summary>
+/// The full exterior skin of the building — every outward-facing <see cref="Face"/>,
+/// grouped into a single closed mesh. Downstream stages slice the envelope into
+/// per-orientation <see cref="Facade"/>s.
+///
+///      ╱────────────╲
+///     ╱             ╱│        Shell    = DMesh3 wrapping the whole exterior
+///    ╱  envelope   ╱ │        Faces    = fitted-plane pieces of that shell
+///   ╱─────────────╱  │        Elements = unique BuildingElements contributing faces
+///   │             │  ╱
+///   │             │ ╱
+///   └─────────────┘╱
+///
+/// </summary>
 public sealed class Envelope
 {
     public DMesh3 Shell { get; }

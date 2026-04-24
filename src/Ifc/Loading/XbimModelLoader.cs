@@ -9,6 +9,15 @@ using Xbim.ModelGeometry.Scene;
 
 namespace IfcEnvelopeMapper.Ifc.Loading;
 
+/// <summary>
+/// Loads an IFC file into <see cref="BuildingElement"/>s and
+/// <see cref="BuildingElementGroup"/>s using <c>Xbim.Ifc</c> for parsing and
+/// <c>Xbim.ModelGeometry.Scene</c> for geometry tessellation. Elements accepted
+/// by <see cref="DefaultElementFilter"/> are emitted; aggregator entities
+/// (e.g., <c>IfcCurtainWall</c>) produce a group with their children as members.
+/// Throws <see cref="IfcLoadException"/> on open failure and
+/// <see cref="IfcGeometryException"/> on tessellation failure.
+/// </summary>
 public sealed class XbimModelLoader
 {
     private readonly DefaultElementFilter _filter;

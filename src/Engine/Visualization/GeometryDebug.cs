@@ -5,21 +5,28 @@ using IfcEnvelopeMapper.Core.Domain.Voxel;
 
 namespace IfcEnvelopeMapper.Engine.Visualization;
 
-// Geometric debugger for algorithm development. Pure facade: every public
-// method is [Conditional("DEBUG")] so callers compiled without DEBUG emit
-// zero IL at the call site. Release builds pay nothing — no wrappers needed.
-//
-// Each method builds a DebugShape and hands it to DebugSession, which owns
-// the shape list + helper process lifecycle. Open http://localhost:5173/
-// in a browser — the viewer polls the GLB 5×/sec and reflects the current
-// geometric state. Place an IDE breakpoint on the line after a call; the
-// file is already written by the time execution pauses.
+/// <summary>
+/// Geometric debugger for algorithm development. A pure facade: every public
+/// method is <c>[Conditional("DEBUG")]</c>, so callers compiled without
+/// <c>DEBUG</c> emit zero IL at the call site — Release builds pay nothing,
+/// with no wrappers needed.
+///
+/// Each method builds a <see cref="DebugShape"/> and hands it to
+/// <see cref="DebugSession"/>, which owns the shape list and the viewer
+/// helper-process lifecycle. Open <c>http://localhost:5173/</c> in a browser:
+/// the viewer polls the GLB 5×/sec and reflects the current geometric state.
+/// Set an IDE breakpoint after a call — the file is already written by the
+/// time execution pauses.
+/// </summary>
 public static class GeometryDebug
 {
-    // Tests call this before any other GeometryDebug.* method to redirect GLB
-    // output to a per-test path and (typically) skip spawning the viewer helper
-    // process — they want isolated artefacts on disk, not a live browser viewer.
-    // CLI never needs this; the default path + helper launch are correct for it.
+    /// <summary>
+    /// Redirects GLB output to <paramref name="outputPath"/>. Tests call this
+    /// before any other <c>GeometryDebug.*</c> method to isolate artefacts on
+    /// disk and typically pass <c>launchServer: false</c> to skip spawning the
+    /// viewer helper process. The CLI never needs this — the default path +
+    /// helper launch are correct for it.
+    /// </summary>
     [Conditional("DEBUG")]
     public static void Configure(string outputPath, bool launchServer = true)
     {
