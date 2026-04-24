@@ -4,9 +4,13 @@ namespace IfcEnvelopeMapper.Core.Extensions;
 
 public static class AxisAlignedBox3dExtensions
 {
-    // Closed cube mesh from this box (12 triangles, 8 vertices). Winding
-    // matches the legacy AppendCube in GltfSerializer so shading stays
-    // consistent under Lambert flat-shading in the viewer.
+    /// <summary>
+    /// Closed cube mesh from this box — 8 vertices, 12 triangles.
+    /// </summary>
+    /// <remarks>
+    /// Triangle winding matches the legacy <c>AppendCube</c> used by the GLB
+    /// serializer, keeping shading consistent under Lambert flat-shading in the viewer.
+    /// </remarks>
     public static DMesh3 ToCube(this AxisAlignedBox3d box)
     {
         var mesh = new DMesh3();
@@ -14,8 +18,10 @@ public static class AxisAlignedBox3dExtensions
         return mesh;
     }
 
-    // 12 edges of the box as From→To segments. Wireframe is lines, not
-    // triangles, so DMesh3 isn't the right payload.
+    /// <summary>
+    /// The 12 edges of this box as <c>(From, To)</c> segments.
+    /// Wireframes are lines, not triangles, so a <see cref="DMesh3"/> isn't the right payload.
+    /// </summary>
     public static IEnumerable<(Vector3d From, Vector3d To)> ToWireframe(this AxisAlignedBox3d box)
     {
         var n = box.Min;

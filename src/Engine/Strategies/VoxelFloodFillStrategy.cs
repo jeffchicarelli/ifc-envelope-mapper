@@ -19,6 +19,36 @@ using IfcEnvelopeMapper.Engine.Visualization;
 
 namespace IfcEnvelopeMapper.Engine.Strategies;
 
+/// <summary>
+/// Detects exterior elements by rasterizing the model into a <see cref="VoxelGrid3D"/>
+/// and flood-filling from outside in (van der Vaart 2022).
+///
+///   1) Rasterize: each mesh triangle marks the voxels it intersects as Occupied
+///      via the SAT test (Akenine-Möller 1997). Occupants are tracked per voxel
+///      so we can map voxels back to element GlobalIds.
+///   2) GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which
+///      the padded grid guarantees to be outside the model.
+///   3) FillGaps: close 1-voxel holes in the occupied shell caused by imperfect
+///      IFC meshes, then GrowInterior and GrowVoid label the remaining cells.
+///   4) Classify: any element occupying a voxel that touches an Exterior voxel
+///      is itself exterior.
+///
+///        ┌─────────────────────┐                ┌─────────────────────┐
+///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │     · Unknown
+///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │     █ Occupied
+///        │ · █         █ · · · │   flood fill   │ ◦ █ · · · · █ ◦ ◦ ◦ │     ◦ Exterior
+///        │ · █         █ · · · │  ─────────────▶│ ◦ █ · · · · █ ◦ ◦ ◦ │
+///        │ · █         █ · · · │                │ ◦ █ · · · · █ ◦ ◦ ◦ │
+///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │
+///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │
+///        └─────────────────────┘                └─────────────────────┘
+///
+/// </summary>
+/// <remarks>
+/// <c>voxelSize</c> trades accuracy for cost: halving it multiplies rasterization
+/// and flood-fill work by ~8. 0.5 m matches the default in the reference paper and
+/// empirically resolves typical wall/slab thicknesses.
+/// </remarks>
 public sealed class VoxelFloodFillStrategy : IDetectionStrategy
 {
     private readonly double _voxelSize;

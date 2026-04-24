@@ -2,14 +2,18 @@ using IfcEnvelopeMapper.Core.Pipeline.Detection;
 
 namespace IfcEnvelopeMapper.Core.Pipeline.Evaluation;
 
+/// <summary>
+/// Turns a set of predicted <see cref="ElementClassification"/>s plus a ground-truth
+/// table into <see cref="DetectionCounts"/>. Only records with an explicit true/false
+/// label contribute; <c>IsExterior == null</c> rows are skipped. Classifications
+/// whose <c>GlobalId</c> is not present in the ground truth are also skipped.
+/// </summary>
 public static class MetricsCalculator
 {
     public static DetectionCounts Compute(
         IReadOnlyList<ElementClassification> classifications,
         IReadOnlyList<GroundTruthRecord> groundTruth)
     {
-        // Only records with an explicit true/false label contribute to metrics.
-        // 'unknown' rows (IsExterior == null) are intentionally excluded.
         var gtByGlobalId = groundTruth
             .Where(r => r.IsExterior.HasValue)
             .ToDictionary(

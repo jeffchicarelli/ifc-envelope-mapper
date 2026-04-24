@@ -4,13 +4,15 @@ using IfcEnvelopeMapper.Ifc.Loading;
 
 namespace IfcEnvelopeMapper.Ifc.Evaluation;
 
+/// <summary>
+/// End-to-end evaluation for a single IFC + ground-truth pair:
+/// <c>load → (generate GT if missing) → detect → read GT → compute metrics</c>.
+/// Returns the full <see cref="EvaluationResult"/> so callers can print summary
+/// stats and also drill into individual classifications (e.g., tests that
+/// visualize false positives/negatives via <c>GeometryDebug</c>).
+/// </summary>
 public static class EvaluationPipeline
 {
-    // End-to-end run for a single IFC + ground-truth pair:
-    //   load → (generate GT if missing) → detect → read GT → compute metrics.
-    // Returns the full EvaluationResult so callers can both print summary stats
-    // AND drill into individual classifications/elements (e.g. tests visualizing
-    // FP/FN with GeometryDebug).
     public static EvaluationResult EvaluateDetection(
         string ifcPath,
         string groundTruthPath,

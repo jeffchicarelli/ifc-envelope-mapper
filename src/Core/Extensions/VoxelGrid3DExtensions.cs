@@ -5,11 +5,17 @@ namespace IfcEnvelopeMapper.Core.Extensions;
 
 public static class VoxelGrid3DExtensions
 {
-    // One DMesh3 containing a cube per voxel coord, optionally shrunk to help
-    // the eye parse neighboring voxels. `shrinkFactor` ∈ (0,1] — 1.0 is
-    // cells-touching, 0.25 (the default debug policy) leaves a gap 3× wider
-    // than the voxel itself. Batching into a single mesh keeps the viewer
-    // scene graph flat (one layer per call, not one per voxel).
+    /// <summary>
+    /// One <see cref="DMesh3"/> containing a cube per voxel coord, optionally shrunk so
+    /// neighbouring voxels don't visually fuse. Batching into a single mesh keeps the
+    /// viewer scene graph flat (one layer per call, not one node per voxel).
+    /// </summary>
+    /// <param name="coords">Coordinates of voxels to include in the mesh.</param>
+    /// <param name="shrinkFactor">
+    /// Value in (0, 1]. 1.0 = cells touch (the default). Callers visualising dense
+    /// voxel clouds typically pass 0.25 to leave a gap three times the voxel width.
+    /// </param>
+    /// <param name="grid">Voxel grid containing the voxels to be meshed.</param>
     public static DMesh3 CubesAt(this VoxelGrid3D grid, IEnumerable<VoxelCoord> coords, double shrinkFactor = 1.0)
     {
         var mesh = new DMesh3();
@@ -18,6 +24,7 @@ public static class VoxelGrid3DExtensions
             var box = grid.GetVoxelBox(coord);
             AxisAlignedBox3dExtensions.AppendCube(mesh, Shrink(box, shrinkFactor));
         }
+
         return mesh;
     }
 

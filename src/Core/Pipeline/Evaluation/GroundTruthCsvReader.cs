@@ -1,5 +1,12 @@
 namespace IfcEnvelopeMapper.Core.Pipeline.Evaluation;
 
+/// <summary>
+/// Parses a ground-truth CSV with fixed header <c>GlobalId,IsExterior,Note</c>.
+/// <c>IsExterior</c> is tri-state (<c>true</c>/<c>false</c>/<c>unknown</c>); anything
+/// else throws <see cref="FormatException"/>. Blank lines are skipped.
+/// The <c>Note</c> column is free-form — commas inside it are preserved because
+/// parsing uses a 3-way split, not a full CSV grammar.
+/// </summary>
 public static class GroundTruthCsvReader
 {
     private const string ExpectedHeader = "GlobalId,IsExterior,Note";

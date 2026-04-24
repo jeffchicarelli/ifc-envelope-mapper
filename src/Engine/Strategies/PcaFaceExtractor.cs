@@ -6,13 +6,22 @@ using IfcEnvelopeMapper.Core.Extensions;
 
 namespace IfcEnvelopeMapper.Engine.Strategies;
 
-// Extracts planar faces from a BuildingElement mesh by grouping coplanar triangles.
-//
-// Plane fitting uses PCA (Principal Component Analysis) via g4.OrthogonalPlaneFit3:
-// given the point cloud of all triangle vertices in a group, it finds the plane
-// that minimises the sum of squared distances from every point — the best-fit
-// average plane. This is more robust than using a single triangle's normal,
-// especially for slightly curved or noisy surfaces common in IFC exports.
+/// <summary>
+/// Extracts planar <see cref="Face"/>s from a <see cref="BuildingElement"/> mesh
+/// by grouping near-coplanar triangles, then fitting a best-fit plane per group
+/// with PCA (Principal Component Analysis, <c>g4.OrthogonalPlaneFit3</c>).
+///
+///      raw mesh                    grouped by n̂                  Face per group
+///    ┌───────────┐                ┌─────────────┐                ┌───────────────┐
+///    │ △ △ △ △ △ │                │ ▲ ▲ ▲ │ ◆ ◆ │                │ plane + tri-  │
+///    │ △ △ △ △ △ │ ── step 1+2 ──▶│ ▲ ▲ ▲ │ ◆ ◆ │ ── step 3+4 ──▶│ ids + area +  │
+///    │ △ △ △ △ △ │  group by      │ ▲ ▲ ▲ │ ◆ ◆ │ split by       │ centroid      │
+///    └───────────┘  normal        └─────────────┘ distance, fit   └───────────────┘
+///
+/// Fitting the plane from all vertex points (rather than reusing one triangle's
+/// normal) is more robust on slightly curved or noisy surfaces — common in IFC
+/// exports where a logically flat wall can carry small triangulation wobble.
+/// </summary>
 public sealed class PcaFaceExtractor : IFaceExtractor
 {
     private readonly double _normalAngleTolerance;   // radians

@@ -4,8 +4,10 @@ namespace IfcEnvelopeMapper.Core.Extensions;
 
 public static class Vector3dExtensions
 {
-    // Best-fit plane via PCA (OrthogonalPlaneFit3 in g4). The plane minimizes
-    // the sum of squared perpendicular distances from every point.
+    /// <summary>
+    /// Best-fit plane through the given points via PCA.
+    /// Minimises the sum of squared perpendicular distances from every point.
+    /// </summary>
     public static Plane3d FitPlane(this IEnumerable<Vector3d> points)
     {
         var list = points as IList<Vector3d> ?? points.ToList();
@@ -13,9 +15,13 @@ public static class Vector3dExtensions
         return new Plane3d(fit.Normal, fit.Origin);
     }
 
-    // UV-sphere centered at this point. rings = latitude bands (poles → equator),
-    // sectors = longitude slices. 8x12 is the historical default — cheap enough
-    // for hundreds of debug spheres, round enough to read at a glance.
+    /// <summary>
+    /// UV-sphere mesh centred at this point.
+    /// </summary>
+    /// <param name="center">Center point of the sphere.</param>
+    /// <param name="radius">Sphere radius.</param>
+    /// <param name="rings">Latitude bands (pole to pole). Default 8 — cheap enough for many debug spheres, round enough to read at a glance.</param>
+    /// <param name="sectors">Longitude slices. Default 12.</param>
     public static DMesh3 ToSphere(this Vector3d center, double radius, int rings = 8, int sectors = 12)
     {
         var mesh    = new DMesh3();
@@ -44,6 +50,7 @@ public static class Vector3dExtensions
                 mesh.AppendTriangle(new Index3i(indices[nxt], indices[nxt + sectors], indices[cur + sectors]));
             }
         }
+
         return mesh;
     }
 }

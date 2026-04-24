@@ -1,8 +1,8 @@
 namespace IfcEnvelopeMapper.Core.Pipeline.Evaluation;
 
-// IsExterior is tri-state:
-//   true    = labeled exterior (from IFC pset or manual curation)
-//   false   = labeled interior
-//   null    = unknown — excluded from metrics
-// Note is descriptive only; MetricsCalculator never inspects it.
+/// <summary>
+/// One labelled row of a ground-truth CSV. <paramref name="IsExterior"/> is tri-state:
+/// <c>true</c> = exterior, <c>false</c> = interior, <c>null</c> = unknown (excluded
+/// from metrics). <paramref name="Note"/> is descriptive only — readers never inspect it.
+/// </summary>
 public sealed record GroundTruthRecord(string GlobalId, bool? IsExterior, string? Note);

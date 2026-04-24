@@ -4,7 +4,11 @@ namespace IfcEnvelopeMapper.Core.Extensions;
 
 public static class DMesh3Extensions
 {
-    // Merges many DMesh3 into one — preserves winding; vertex indices get offset.
+    /// <summary>
+    /// Merges many meshes into one. Triangle winding is preserved; vertex indices
+    /// are offset so the combined index space stays consistent. Deleted vertices
+    /// and triangles in the sources are skipped.
+    /// </summary>
     public static DMesh3 Merge(this IEnumerable<DMesh3> meshes)
     {
         var merged = new DMesh3();
@@ -34,7 +38,12 @@ public static class DMesh3Extensions
         return merged;
     }
 
-    // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
+    /// <summary>
+    /// Builds a new mesh containing only the given triangles from <paramref name="source"/>.
+    /// Each triangle gets its own three vertices (no vertex sharing), so the result has
+    /// <c>3 × triangleCount</c> vertices. Triangle ids that no longer exist in the source
+    /// are silently skipped.
+    /// </summary>
     public static DMesh3 ExtractTriangles(this DMesh3 source, IEnumerable<int> triangleIds)
     {
         var mesh = new DMesh3();
