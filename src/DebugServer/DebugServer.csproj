@@ -17,7 +17,7 @@
   </PropertyGroup>
 
   <!--
-    No Content items here. The viewer HTML is flowed by IfcEnvelopeMapper.Debug,
+    No Content items here. The viewer HTML is flowed by IfcEnvelopeMapper.Engine,
     which is what downstream consumers (Cli, Tests) actually reference. The
     helper receives the resolved HTML path as a CLI arg — it does not look for
     the file next to itself.

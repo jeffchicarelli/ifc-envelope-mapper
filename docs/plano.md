@@ -132,15 +132,17 @@ Relação BuildingElement ↔ BuildingElementGroup: MUITOS-PARA-UM (opcional)
 
 > Implementação em `src/IfcEnvelopeMapper.Core/Surface/Facade.cs`
 
-### Interfaces do pipeline
+### Interfaces e tipos de pipeline
 
-> Implementações em `src/IfcEnvelopeMapper.Core/Loading/` (`IModelLoader`, `IElementFilter`, `DefaultElementFilter`), `Detection/` (`IDetectionStrategy`), `Grouping/` (`IFacadeGrouper`)
+> Tipos em `src/Core/Pipeline/Loading/` (`ModelLoadResult`, `DefaultElementFilter`) e `Pipeline/Detection/` (`IDetectionStrategy`, `IFaceExtractor`, `DetectionResult`, `ElementClassification`).
+>
+> Reorganização 2026-04-23: as interfaces `IModelLoader`, `IElementFilter`, `IIfcProductResolver` e `IFacadeGrouper` foram removidas — eram interfaces com implementação única (`XbimModelLoader`, `DefaultElementFilter`, `XbimIfcProductResolver`) ou sem nenhuma implementação (`IFacadeGrouper`, planejada para P5). Quando segunda implementação for necessária (ex.: `RayCastingStrategy` baseline para `IDetectionStrategy`), a interface volta naturalmente.
 
 ### Acesso cru ao IIfcProduct (ADR-10)
 
-Mora na camada Ifc. Viewer, Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
+Mora na camada Ifc. Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
 
-> Implementações em `src/IfcEnvelopeMapper.Ifc/Resolver/IIfcProductResolver.cs` e `XbimIfcProductResolver.cs`
+> Implementação em `src/Ifc/Resolver/XbimIfcProductResolver.cs` (classe selada; sem interface — apenas `IDisposable`).
 
 Index em `Dictionary` evita busca linear em modelos com milhares de elementos. Lifetime: o resolver precisa do `IfcStore` aberto; gerenciar via `using` ou escopo de DI.
 
@@ -263,7 +265,7 @@ Não é referência gerenciada — fica fora do grafo de deps.
 IFC Model
     │
     ▼
-[XbimModelLoader — implements IModelLoader]
+[XbimModelLoader (sealed) — Load(path) → ModelLoadResult]
     │  IReadOnlyList<BuildingElement>
     ▼
 [Stage 1 — IDetectionStrategy.Detect()]
@@ -315,9 +317,9 @@ Facade[]
 // DetectCommand.cs — composition root
 // GeometryDebug (#if DEBUG) está sempre disponível sem configuração (ADR-17)
 
-var model    = loader.Load(modelPath);                        // IModelLoader → ModelLoadResult
+var model    = loader.Load(modelPath);                        // XbimModelLoader → ModelLoadResult
 var result   = strategy.Detect(model.Elements);               // IDetectionStrategy → DetectionResult
-var facades  = grouper.Group(result.Envelope);                // IFacadeGrouper → Facade[]
+var facades  = grouper.Group(result.Envelope);                // IFacadeGrouper (planejado P5) → Facade[]
 var lodOutputs = options.Lods                                 // ILodGenerator[] (ADR-15)
                     .Select(id => registry.Resolve(id).Generate(result, facades))
                     .ToList();
@@ -348,7 +350,7 @@ writer.WriteReports(report, outputPath);                      // 1 JSON por LoD 
 ```
 FUNÇÃO Load(ifcPath) → ModelLoadResult
     // Ref: xBIM Toolkit — Xbim3DModelContext (Lockley et al.)
-    // ADR-05: filtro injetado por construtor (IElementFilter)
+    // ADR-05: filtro injetado por construtor (DefaultElementFilter; interface removida 2026-04-23)
     // ADR-09: agregação IFC de building elements tem 2 níveis fixos
     // ADR-11: resultado separa átomos (Elements) de agregadores (Groups)
 

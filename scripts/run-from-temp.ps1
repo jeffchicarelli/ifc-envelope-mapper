@@ -5,8 +5,8 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot     = Resolve-Path (Join-Path $PSScriptRoot "..")
-$cliProj      = Join-Path $repoRoot "src\IfcEnvelopeMapper.Cli\IfcEnvelopeMapper.Cli.csproj"
-$cliOutDir    = Join-Path $repoRoot "src\IfcEnvelopeMapper.Cli\bin\Debug\net8.0"
+$cliProj      = Join-Path $repoRoot "src\Cli\Cli.csproj"
+$cliOutDir    = Join-Path $repoRoot "src\Cli\bin\Debug\net8.0"
 $modelsSrcDir = Join-Path $repoRoot "data\models"
 
 $runDir       = "C:\temp\ifcenvmapper"
