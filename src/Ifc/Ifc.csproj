@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseAppHost>false</UseAppHost>
+    <RootNamespace>IfcEnvelopeMapper.Ifc</RootNamespace>
+    <AssemblyName>IfcEnvelopeMapper.Ifc</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Xbim.Essentials" Version="6.0.587" />
+    <PackageReference Include="Xbim.Geometry.Engine.Interop" Version="6.3.891-netcore" />
+    <PackageReference Include="Xbim.ModelGeometry.Scene" Version="6.3.891-netcore" />
+  </ItemGroup>
+
+</Project>

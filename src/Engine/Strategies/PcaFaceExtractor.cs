@@ -1,0 +1,156 @@
+using g4;
+using IfcEnvelopeMapper.Core.Pipeline.Detection;
+using IfcEnvelopeMapper.Core.Domain.Element;
+using IfcEnvelopeMapper.Core.Domain.Surface;
+using IfcEnvelopeMapper.Core.Extensions;
+
+namespace IfcEnvelopeMapper.Engine.Strategies;
+
+// Extracts planar faces from a BuildingElement mesh by grouping coplanar triangles.
+//
+// Plane fitting uses PCA (Principal Component Analysis) via g4.OrthogonalPlaneFit3:
+// given the point cloud of all triangle vertices in a group, it finds the plane
+// that minimises the sum of squared distances from every point — the best-fit
+// average plane. This is more robust than using a single triangle's normal,
+// especially for slightly curved or noisy surfaces common in IFC exports.
+public sealed class PcaFaceExtractor : IFaceExtractor
+{
+    private readonly double _normalAngleTolerance;   // radians
+    private readonly double _planeDistanceTolerance; // metres
+
+    public PcaFaceExtractor(
+        double normalAngleToleranceDeg = 5.0,
+        double planeDistanceTolerance  = 0.05)
+    {
+        _normalAngleTolerance   = normalAngleToleranceDeg * Math.PI / 180.0;
+        _planeDistanceTolerance = planeDistanceTolerance;
+    }
+
+    public IReadOnlyList<Face> Extract(BuildingElement element)
+    {
+        var mesh = element.Mesh;
+        if (mesh.TriangleCount == 0)
+        {
+            return Array.Empty<Face>();
+        }
+
+        // Step 1+2: group triangles by similar normal direction
+        var groups = new List<List<int>>();
+
+        for (var tid = 0; tid < mesh.MaxTriangleID; tid++)
+        {
+            if (!mesh.IsTriangle(tid))
+            {
+                continue;
+            }
+
+            var (va, vb, vc) = GetVertices(mesh, tid);
+            var cross = (vb - va).Cross(vc - va);
+            if (cross.LengthSquared < 1e-20)
+            {
+                continue; // degenerate triangle
+            }
+
+            var normal = cross.Normalized;
+
+            var placed = false;
+            foreach (var group in groups)
+            {
+                var (ra, rb, rc) = GetVertices(mesh, group[0]);
+                var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+                var dot   = Math.Clamp(normal.Dot(repNormal), -1.0, 1.0);
+                var angle = Math.Acos(dot);
+
+                // accept same-direction OR antiparallel normals (opposite faces of same wall)
+                if (angle < _normalAngleTolerance || Math.PI - angle < _normalAngleTolerance)
+                {
+                    group.Add(tid);
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                groups.Add([tid]);
+            }
+        }
+
+        // Step 3+4: split each group by plane distance, then fit plane → Face
+        var faces = new List<Face>();
+        foreach (var group in groups)
+        {
+            faces.AddRange(SplitByDistanceAndFit(element, group));
+        }
+
+        return faces;
+    }
+
+    private IEnumerable<Face> SplitByDistanceAndFit(BuildingElement element, List<int> group)
+    {
+        var mesh = element.Mesh;
+        var (ra, rb, rc) = GetVertices(mesh, group[0]);
+        var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+        var subgroups = new List<List<int>>();
+
+        // Step 3: subdivide by signed distance along the group's normal axis
+        foreach (var tid in group)
+        {
+            var (va, vb, vc) = GetVertices(mesh, tid);
+            var centroid = (va + vb + vc) / 3.0;
+            var dist = centroid.Dot(repNormal);
+
+            var placed = false;
+            foreach (var sub in subgroups)
+            {
+                var (sa, sb, sc) = GetVertices(mesh, sub[0]);
+                var repDist = ((sa + sb + sc) / 3.0).Dot(repNormal);
+                if (Math.Abs(dist - repDist) < _planeDistanceTolerance)
+                {
+                    sub.Add(tid);
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (!placed)
+            {
+                subgroups.Add([tid]);
+            }
+        }
+
+        // Step 4: fit plane via PCA and create a Face per subgroup
+        foreach (var sub in subgroups)
+        {
+            var points           = new List<Vector3d>();
+            var area             = 0.0;
+            var weightedCentroid = Vector3d.Zero;
+
+            foreach (var tid in sub)
+            {
+                var (va, vb, vc) = GetVertices(mesh, tid);
+                points.Add(va);
+                points.Add(vb);
+                points.Add(vc);
+
+                // area = 0.5 * |(vb - va) × (vc - va)| (cross-product magnitude formula)
+                var triArea      = 0.5 * (vb - va).Cross(vc - va).Length;
+                var triCentroid  = (va + vb + vc) / 3.0;
+                area            += triArea;
+                weightedCentroid += triCentroid * triArea;
+            }
+
+            var centroid = area > 1e-10 ? weightedCentroid / area : points[0];
+
+            var plane = points.FitPlane();
+
+            yield return new Face(element, sub, plane, area, centroid);
+        }
+    }
+
+    private static (Vector3d a, Vector3d b, Vector3d c) GetVertices(DMesh3 mesh, int tid)
+    {
+        var tri = mesh.GetTriangle(tid);
+        return (mesh.GetVertex(tri.a), mesh.GetVertex(tri.b), mesh.GetVertex(tri.c));
+    }
+}
