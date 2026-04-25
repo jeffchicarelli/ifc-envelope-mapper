@@ -1,11 +1,13 @@
 using g4;
 using IfcEnvelopeMapper.Core.Domain.Element;
 using IfcEnvelopeMapper.Core.Pipeline.Loading;
+using Microsoft.Extensions.Logging;
 using Xbim.Common.Geometry;
 using Xbim.Common.XbimExtensions;
 using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
 using Xbim.ModelGeometry.Scene;
+using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
 
 namespace IfcEnvelopeMapper.Ifc.Loading;
 
@@ -38,6 +40,8 @@ public sealed class XbimModelLoader
         {
             throw new IfcLoadException(path, $"Failed to open IFC file: {path}", ex);
         }
+
+        Log.LogInformation("Opened IFC: {Path}", path);
 
         using (model)
         {
@@ -104,7 +108,9 @@ public sealed class XbimModelLoader
                         var childMesh = ExtractMesh(child, context);
                         if (childMesh.TriangleCount == 0)
                         {
-                            // TODO P3: logger.Warning — element discarded (empty mesh).
+                            Log.LogWarning(
+                                "Element {GlobalId} ({IfcType}) has empty mesh — discarded",
+                                child.GlobalId, child.GetType().Name);
                             continue;
                         }
 
@@ -131,6 +137,10 @@ public sealed class XbimModelLoader
                     });
                 }
             }
+
+            Log.LogInformation(
+                "Loaded {ElementCount} elements, {GroupCount} groups from {Path}",
+                elements.Count, groups.Count, path);
 
             return new ModelLoadResult(elements, groups);
         }

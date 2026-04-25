@@ -1,7 +1,9 @@
+using System.CommandLine;
 using System.Diagnostics;
-using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Core.Diagnostics;
+using IfcEnvelopeMapper.Core.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
+using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
 
@@ -9,86 +11,79 @@ using Xbim.Common.Configuration;
 using IfcEnvelopeMapper.Engine.Visualization;
 
 // Trigger the debug viewer's static ctor (binds port 5173, writes empty GLB)
-// before the pipeline starts so the viewer has something to serve immediately.
+// before the pipeline starts, so the viewer has something to serve immediately.
 GeometryDebug.Clear();
 #endif
 
-using var loggerFactory = LoggerFactory.Create(b =>
-    b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+using var loggerFactory = LoggerFactory.Create(b => b
+    .AddConsole()
+    .SetMinimumLevel(LogLevel.Warning)
+    .AddFilter("IfcEnvelopeMapper", LogLevel.Information));
 
-XbimServices.Current.ConfigureServices(s =>
-    s.AddXbimToolkit(c => c.AddLoggerFactory(loggerFactory)));
+AppLog.Configure(loggerFactory);
 
-var ifcPath = FindUpward("data/models/duplex.ifc")
-              ?? throw new FileNotFoundException("duplex.ifc not found in any parent directory");
+XbimServices.Current.ConfigureServices(s => s
+    .AddXbimToolkit(c => c.AddLoggerFactory(loggerFactory)));
 
-var gtPath = Path.Combine(
-    Path.GetDirectoryName(Path.GetDirectoryName(ifcPath))!,
-    "ground-truth", "duplex.csv");
+var inputOption = new Option<FileInfo>(
+        name: "--input",
+        description: "Path to the IFC file to analyze")
+    { IsRequired = true };
+inputOption.AddAlias("-i");
 
-const double voxelSize = 0.25;
+var voxelSizeOption = new Option<double>(
+    name: "--voxel-size",
+    getDefaultValue: () => 0.25,
+    description: "Voxel size in meters (only used by --strategy voxel)");
+voxelSizeOption.AddAlias("-v");
 
-Console.WriteLine($"Opening: {ifcPath}");
-Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize})...");
+var detectCmd = new Command("detect", "Run envelope detection on an IFC model")
+{
+    inputOption,
+    voxelSizeOption,
+};
+detectCmd.SetHandler(RunDetect, inputOption, voxelSizeOption);
 
-var sw = Stopwatch.StartNew();
-var evaluation = EvaluationPipeline.EvaluateDetection(
-    ifcPath,
-    gtPath,
-    new VoxelFloodFillStrategy(voxelSize: voxelSize));
-sw.Stop();
+var root = new RootCommand("ifcenvmapper — IFC building envelope mapper")
+{
+    detectCmd,
+};
 
-PrintReport(evaluation, sw.Elapsed, gtPath);
+return await root.InvokeAsync(args);
+
+static void RunDetect(FileInfo input, double voxelSize)
+{
+    Console.WriteLine($"Opening: {input.FullName}");
+    Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
+
+    var loader = new XbimModelLoader();
+    var model = loader.Load(input.FullName);
+
+    var sw = Stopwatch.StartNew();
+    var strategy = new VoxelFloodFillStrategy(voxelSize: voxelSize);
+    var result = strategy.Detect(model.Elements);
+    sw.Stop();
+
+    PrintReport(result, sw.Elapsed);
 
 #if DEBUG
-Console.WriteLine();
-Console.WriteLine("Debug viewer still serving. Press any key to exit...");
-Console.ReadKey();
+    Console.WriteLine();
+    Console.WriteLine("Debug viewer still serving. Press any key to exit...");
+    Console.ReadKey();
 #endif
+}
 
-return;
-
-static void PrintReport(EvaluationResult evaluation, TimeSpan elapsed, string gtPath)
+static void PrintReport(DetectionResult result, TimeSpan elapsed)
 {
-    var classifications = evaluation.Detection.Classifications;
-    var ext = classifications.Count(c => c.IsExterior);
-    var intr = classifications.Count(c => !c.IsExterior);
-    var counts = evaluation.Counts;
-    var skipped = classifications.Count - counts.Total;
+    var ext = result.Classifications.Count(c => c.IsExterior);
+    var intr = result.Classifications.Count(c => !c.IsExterior);
 
     Console.WriteLine($"Done in {elapsed.TotalSeconds:F2}s");
     Console.WriteLine($"  Exterior : {ext}");
     Console.WriteLine($"  Interior : {intr}");
     Console.WriteLine();
-    foreach (var c in classifications.Where(c => c.IsExterior))
+    foreach (var c in result.Classifications.Where(c => c.IsExterior))
     {
         Console.WriteLine($"  [EXT] {c.Element.IfcType,-30} {c.Element.GlobalId}");
     }
-
-    Console.WriteLine();
-    Console.WriteLine($"Evaluation vs {Path.GetFileName(gtPath)}:");
-    Console.WriteLine($"  TP={counts.TruePositives}  FP={counts.FalsePositives}  " +
-                      $"FN={counts.FalseNegatives}  TN={counts.TrueNegatives}");
-    Console.WriteLine($"  Precision = {Format(counts.Precision)}");
-    Console.WriteLine($"  Recall    = {Format(counts.Recall)}");
-    Console.WriteLine($"  (skipped {skipped} classifications with no ground-truth entry)");
-
-    static string Format(double v) => double.IsNaN(v) ? "—" : v.ToString("F3");
-}
-
-static string? FindUpward(string relative)
-{
-    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-    while (dir is not null)
-    {
-        var candidate = Path.Combine(dir.FullName, relative);
-        if (File.Exists(candidate))
-        {
-            return candidate;
-        }
-
-        dir = dir.Parent;
-    }
-
-    return null;
 }
