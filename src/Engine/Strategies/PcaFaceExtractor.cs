@@ -46,27 +46,21 @@ public sealed class PcaFaceExtractor : IFaceExtractor
         // Step 1+2: group triangles by similar normal direction
         var groups = new List<List<int>>();
 
-        for (var tid = 0; tid < mesh.MaxTriangleID; tid++)
+        foreach (var tid in mesh.TriangleIndices())
         {
-            if (!mesh.IsTriangle(tid))
-            {
-                continue;
-            }
-
-            var (va, vb, vc) = GetVertices(mesh, tid);
-            var cross = (vb - va).Cross(vc - va);
-            if (cross.LengthSquared < 1e-20)
+            if (!mesh.TryGetTriangleCentroidAndNormal(tid, out _, out var normal))
             {
                 continue; // degenerate triangle
             }
 
-            var normal = cross.Normalized;
-
             var placed = false;
             foreach (var group in groups)
             {
-                var (ra, rb, rc) = GetVertices(mesh, group[0]);
-                var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+                if (!mesh.TryGetTriangleCentroidAndNormal(group[0], out _, out var repNormal))
+                {
+                    continue;
+                }
+
                 var dot   = Math.Clamp(normal.Dot(repNormal), -1.0, 1.0);
                 var angle = Math.Acos(dot);
 
@@ -98,22 +92,32 @@ public sealed class PcaFaceExtractor : IFaceExtractor
     private IEnumerable<Face> SplitByDistanceAndFit(BuildingElement element, List<int> group)
     {
         var mesh = element.Mesh;
-        var (ra, rb, rc) = GetVertices(mesh, group[0]);
-        var repNormal = (rb - ra).Cross(rc - ra).Normalized;
+        if (!mesh.TryGetTriangleCentroidAndNormal(group[0], out _, out var repNormal))
+        {
+            yield break;
+        }
+
         var subgroups = new List<List<int>>();
 
         // Step 3: subdivide by signed distance along the group's normal axis
         foreach (var tid in group)
         {
-            var (va, vb, vc) = GetVertices(mesh, tid);
-            var centroid = (va + vb + vc) / 3.0;
-            var dist = centroid.Dot(repNormal);
+            if (!mesh.TryGetTriangleCentroidAndNormal(tid, out var centroid, out _))
+            {
+                continue;
+            }
 
+            var dist   = centroid.Dot(repNormal);
             var placed = false;
+
             foreach (var sub in subgroups)
             {
-                var (sa, sb, sc) = GetVertices(mesh, sub[0]);
-                var repDist = ((sa + sb + sc) / 3.0).Dot(repNormal);
+                if (!mesh.TryGetTriangleCentroidAndNormal(sub[0], out var subCentroid, out _))
+                {
+                    continue;
+                }
+
+                var repDist = subCentroid.Dot(repNormal);
                 if (Math.Abs(dist - repDist) < _planeDistanceTolerance)
                 {
                     sub.Add(tid);
@@ -137,12 +141,15 @@ public sealed class PcaFaceExtractor : IFaceExtractor
 
             foreach (var tid in sub)
             {
-                var (va, vb, vc) = GetVertices(mesh, tid);
+                var t  = mesh.GetTriangle(tid);
+                var va = mesh.GetVertex(t.a);
+                var vb = mesh.GetVertex(t.b);
+                var vc = mesh.GetVertex(t.c);
                 points.Add(va);
                 points.Add(vb);
                 points.Add(vc);
 
-                // area = 0.5 * |(vb - va) × (vc - va)| (cross-product magnitude formula)
+                // area = 0.5 * |(vb - va) × (vc - va)|
                 var triArea      = 0.5 * (vb - va).Cross(vc - va).Length;
                 var triCentroid  = (va + vb + vc) / 3.0;
                 area            += triArea;
@@ -150,16 +157,9 @@ public sealed class PcaFaceExtractor : IFaceExtractor
             }
 
             var centroid = area > 1e-10 ? weightedCentroid / area : points[0];
-
-            var plane = points.FitPlane();
+            var plane    = points.FitPlane();
 
             yield return new Face(element, sub, plane, area, centroid);
         }
-    }
-
-    private static (Vector3d a, Vector3d b, Vector3d c) GetVertices(DMesh3 mesh, int tid)
-    {
-        var tri = mesh.GetTriangle(tid);
-        return (mesh.GetVertex(tri.a), mesh.GetVertex(tri.b), mesh.GetVertex(tri.c));
     }
 }

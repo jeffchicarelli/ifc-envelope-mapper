@@ -29,8 +29,12 @@ internal static class DebugSession
     private static bool _serverStarted = false;
 
     // Accumulates across the whole run — each GeometryDebug.* call appends
-    // then re-flushes the full list. Not thread-safe; Detect is single-threaded.
+    // then re-flushes the full list. Production calls Detect on one thread,
+    // but xunit parallelises test classes; the lock makes that safe and
+    // costs nothing outside Debug builds (GeometryDebug.* is
+    // [Conditional("DEBUG")], so Release strips every call site).
     private static readonly List<DebugShape> _shapes = new();
+    private static readonly object _lock = new();
 
     // Handle to the out-of-process HTTP viewer server. Kept at type scope so
     // the ProcessExit handler can terminate it on clean shutdown.
@@ -43,27 +47,40 @@ internal static class DebugSession
     // never calls this — the default path + helper launch are correct for it.
     public static void Configure(string outputPath, bool launchServer = true)
     {
-        _outputPath = outputPath;
-        _launchServer = launchServer;
+        lock (_lock)
+        {
+            _outputPath = outputPath;
+            _launchServer = launchServer;
+        }
     }
 
     public static void Add(DebugShape shape)
     {
-        EnsureServerStarted();
-        _shapes.Add(shape);
-        GltfSerializer.Flush(_shapes, _outputPath);
+        lock (_lock)
+        {
+            EnsureServerStarted();
+            _shapes.Add(shape);
+            GltfSerializer.Flush(_shapes, _outputPath);
+        }
     }
 
     public static void Clear()
     {
-        EnsureServerStarted();
-        _shapes.Clear();
-        GltfSerializer.Flush(_shapes, _outputPath);
+        lock (_lock)
+        {
+            EnsureServerStarted();
+            _shapes.Clear();
+            GltfSerializer.Flush(_shapes, _outputPath);
+        }
     }
 
     private static void EnsureServerStarted()
     {
-        if (_serverStarted || !_launchServer) return;
+        if (_serverStarted || !_launchServer)
+        {
+            return;
+        }
+
         _serverStarted = true;
         StartHelperProcess();
     }
@@ -122,8 +139,20 @@ internal static class DebugSession
 
             // Pump helper stdout/stderr into this console so the "Debug viewer:
             // http://localhost:PORT/" line and any errors surface to the user.
-            _helperProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
-            _helperProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+            _helperProcess.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is not null)
+                {
+                    Console.WriteLine(e.Data);
+                }
+            };
+            _helperProcess.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is not null)
+                {
+                    Console.Error.WriteLine(e.Data);
+                }
+            };
             _helperProcess.BeginOutputReadLine();
             _helperProcess.BeginErrorReadLine();
 
@@ -136,7 +165,10 @@ internal static class DebugSession
                         _helperProcess.Kill();
                     }
                 }
-                catch { /* best-effort cleanup */ }
+                catch
+                {
+                    /* best-effort cleanup */
+                }
             };
         }
         catch (Exception ex)
