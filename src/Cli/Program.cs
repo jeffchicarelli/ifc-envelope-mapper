@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using IfcEnvelopeMapper.Core.Diagnostics;
 using IfcEnvelopeMapper.Core.Pipeline.Detection;
+using IfcEnvelopeMapper.Core.Pipeline.Reporting;
 using IfcEnvelopeMapper.Engine.Strategies;
 using IfcEnvelopeMapper.Engine.Visualization;
 using IfcEnvelopeMapper.Ifc.Loading;
@@ -42,13 +43,19 @@ var strategyOption = new Option<string>(
 strategyOption.AddAlias("-s");
 strategyOption.FromAmong("voxel", "raycast");
 
+var outputOption = new Option<FileInfo?>(
+    name: "--output",
+    description: "Path for the JSON report. If omitted, no file is written.");
+outputOption.AddAlias("-o");
+
 var detectCmd = new Command("detect", "Run envelope detection on an IFC model")
 {
     inputOption,
     voxelSizeOption,
     strategyOption,
+    outputOption,
 };
-detectCmd.SetHandler(RunDetect, inputOption, voxelSizeOption, strategyOption);
+detectCmd.SetHandler(RunDetect, inputOption, voxelSizeOption, strategyOption, outputOption);
 
 var root = new RootCommand("ifcenvmapper — IFC building envelope mapper")
 {
@@ -57,19 +64,22 @@ var root = new RootCommand("ifcenvmapper — IFC building envelope mapper")
 
 return await root.InvokeAsync(args);
 
-static void RunDetect(FileInfo input, double voxelSize, string strategy)
+static void RunDetect(FileInfo input, double voxelSize, string strategy, FileInfo? output)
 {
     Console.WriteLine($"Opening: {input.FullName}");
 
     IDetectionStrategy impl;
+    StrategyConfig     config;
     switch (strategy)
     {
         case "voxel":
-            impl = new VoxelFloodFillStrategy(voxelSize: voxelSize);
+            impl   = new VoxelFloodFillStrategy(voxelSize: voxelSize);
+            config = new StrategyConfig(VoxelSize: voxelSize, NumRays: null, JitterDeg: null, HitRatio: null);
             Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
             break;
         case "raycast":
-            impl = new RayCastingStrategy();
+            impl   = new RayCastingStrategy();
+            config = new StrategyConfig(VoxelSize: null, NumRays: 8, JitterDeg: 5.0, HitRatio: 0.5);
             Console.WriteLine("Running RayCastingStrategy (numRays=8, jitterDeg=5°, hitRatio=0.5)...");
             break;
         default:
@@ -84,6 +94,14 @@ static void RunDetect(FileInfo input, double voxelSize, string strategy)
     sw.Stop();
 
     PrintReport(result, sw.Elapsed);
+
+    if (output is not null)
+    {
+        var report = ReportBuilder.Build(input.FullName, strategy, config, result, sw.Elapsed);
+        JsonReportWriter.Write(report, output.FullName);
+        Console.WriteLine();
+        Console.WriteLine($"Report written to: {output.FullName}");
+    }
 }
 
 static void PrintReport(DetectionResult result, TimeSpan elapsed)
