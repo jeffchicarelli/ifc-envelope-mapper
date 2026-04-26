@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using IfcEnvelopeMapper.Core.Diagnostics;
+using IfcEnvelopeMapper.Core.Pipeline.Bcf;
 using IfcEnvelopeMapper.Core.Pipeline.Detection;
 using IfcEnvelopeMapper.Core.Pipeline.Reporting;
 using IfcEnvelopeMapper.Engine.Strategies;
@@ -97,8 +98,20 @@ static void RunDetect(FileInfo input, double voxelSize, string strategy, FileInf
 
     if (output is not null)
     {
-        var report = ReportBuilder.Build(input.FullName, strategy, config, result, sw.Elapsed);
-        JsonReportWriter.Write(report, output.FullName);
+        switch (output.Extension.ToLowerInvariant())
+        {
+            case ".json":
+                var report = ReportBuilder.Build(input.FullName, strategy, config, result, sw.Elapsed);
+                JsonReportWriter.Write(report, output.FullName);
+                break;
+            case ".bcf":
+            case ".bcfzip":
+                BcfWriter.Write(BcfBuilder.Build(result), output.FullName);
+                break;
+            default:
+                throw new ArgumentException(
+                    $"Unsupported output format: {output.Extension}. Use .json or .bcf.");
+        }
         Console.WriteLine();
         Console.WriteLine($"Report written to: {output.FullName}");
     }
