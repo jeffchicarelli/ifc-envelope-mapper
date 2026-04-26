@@ -1357,10 +1357,12 @@ Blazor Server + three.js interop foi planejado para validar viabilidade do Viewe
 
 **P3.1 — RayCasting baseline (2 semanas)**
 Ref: Ying et al. (2022); ADR-14.
-- [ ] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `GeometryDebug.Line(...)` para raios hit/escape (ADR-17)
-- [ ] Testes unitários
-- [ ] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
-- [ ] Tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) para a dissertação
+- [x] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `GeometryDebug.Line(...)` para raios hit/escape (ADR-17)
+- [x] Testes unitários
+- [x] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
+- [x] Tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) para a dissertação
+
+**Atualização (2026-04-26) — P3.1 fechada.** `RayCastingStrategy` (Ying 2022) entregue com BVH global via `g4.DMeshAABBTree3` e mapa de ownership por triângulo para auto-hit. Ablation contra `VoxelFloodFillStrategy` em `duplex.ifc` (Voxel P=0.849/R=0.918 vs RayCasting P=0.568/R=0.939 — tradeoff precision × recall da literatura confirmado) e `demo2.ifc` (raycast apenas; voxel falha por extensão de bbox em coordenadas georreferenciadas, fora do escopo P3.1). Fixture degradada sintética em `DegradedFixtureTests` (enclosure de 6 paredes ± gap) documenta leakage volumétrico do voxel × falha por face do raycast. Tabela comparativa em `data/results/strategy-comparison.md` (gitignored) regenerada por `StrategyComparisonTests` em cada `dotnet test`.
 
 **P3.2 — JSON + BCF mínimo (2 semanas)**
 Ref: ADR-06 (BCF); ADR-15 (LoD output).
