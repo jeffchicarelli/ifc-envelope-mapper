@@ -24,27 +24,7 @@ public sealed class IfcModelFixture
 
     public IfcModelFixture()
     {
-        IfcPath = FindUpward(Path.Combine("data", "models", "duplex.ifc"))
-                  ?? throw new FileNotFoundException(
-                      "duplex.ifc not found in any parent directory of " + Directory.GetCurrentDirectory());
-
-        Model = new XbimModelLoader().Load(IfcPath);
-    }
-
-    private static string? FindUpward(string relative)
-    {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, relative);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = dir.Parent;
-        }
-
-        return null;
+        IfcPath = TestPaths.FindModel("duplex.ifc");
+        Model   = new XbimModelLoader().Load(IfcPath);
     }
 }

@@ -160,9 +160,20 @@ public sealed class XbimModelLoader
         {
             switch (current)
             {
-                case IIfcBuildingStorey s: storeyId ??= s.GlobalId; break;
-                case IIfcBuilding b:       buildingId ??= b.GlobalId; break;
-                case IIfcSite s:           siteId ??= s.GlobalId; break;
+                case IIfcBuildingStorey s:
+                {
+                    storeyId ??= s.GlobalId; break;
+                }
+
+                case IIfcBuilding b:
+                {
+                    buildingId ??= b.GlobalId; break;
+                }
+
+                case IIfcSite s:
+                {
+                    siteId ??= s.GlobalId; break;
+                }
             }
 
             current = current.Decomposes

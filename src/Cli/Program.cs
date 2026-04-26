@@ -37,12 +37,20 @@ var voxelSizeOption = new Option<double>(
     description: "Voxel size in meters (only used by --strategy voxel)");
 voxelSizeOption.AddAlias("-v");
 
+var strategyOption = new Option<string>(
+    name: "--strategy",
+    getDefaultValue: () => "voxel",
+    description: "Detection strategy: voxel (primary) or raycast (baseline).");
+strategyOption.AddAlias("-s");
+strategyOption.FromAmong("voxel", "raycast");
+
 var detectCmd = new Command("detect", "Run envelope detection on an IFC model")
 {
     inputOption,
     voxelSizeOption,
+    strategyOption,
 };
-detectCmd.SetHandler(RunDetect, inputOption, voxelSizeOption);
+detectCmd.SetHandler(RunDetect, inputOption, voxelSizeOption, strategyOption);
 
 var root = new RootCommand("ifcenvmapper — IFC building envelope mapper")
 {
@@ -51,17 +59,30 @@ var root = new RootCommand("ifcenvmapper — IFC building envelope mapper")
 
 return await root.InvokeAsync(args);
 
-static void RunDetect(FileInfo input, double voxelSize)
+static void RunDetect(FileInfo input, double voxelSize, string strategy)
 {
     Console.WriteLine($"Opening: {input.FullName}");
-    Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
+
+    IDetectionStrategy impl;
+    switch (strategy)
+    {
+        case "voxel":
+            impl = new VoxelFloodFillStrategy(voxelSize: voxelSize);
+            Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
+            break;
+        case "raycast":
+            impl = new RayCastingStrategy();
+            Console.WriteLine("Running RayCastingStrategy (numRays=8, jitterDeg=5°, hitRatio=0.5)...");
+            break;
+        default:
+            throw new InvalidOperationException($"Unknown strategy: {strategy}");
+    }
 
     var loader = new XbimModelLoader();
     var model = loader.Load(input.FullName);
 
     var sw = Stopwatch.StartNew();
-    var strategy = new VoxelFloodFillStrategy(voxelSize: voxelSize);
-    var result = strategy.Detect(model.Elements);
+    var result = impl.Detect(model.Elements);
     sw.Stop();
 
     PrintReport(result, sw.Elapsed);

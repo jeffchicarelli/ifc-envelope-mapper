@@ -39,6 +39,20 @@ public static class DMesh3Extensions
     }
 
     /// <summary>
+    /// Translates every vertex of <paramref name="mesh"/> by <paramref name="offset"/>
+    /// in place. Triangle indices and topology are unchanged. Used to re-anchor
+    /// georeferenced IFC models near the origin so bounding-box-driven structures
+    /// (e.g. <c>VoxelGrid3D</c>) don't overflow .NET's array-size limits.
+    /// </summary>
+    public static void Translate(this DMesh3 mesh, Vector3d offset)
+    {
+        foreach (var vid in mesh.VertexIndices())
+        {
+            mesh.SetVertex(vid, mesh.GetVertex(vid) + offset);
+        }
+    }
+
+    /// <summary>
     /// Computes the geometric centroid and outward unit normal of triangle
     /// <paramref name="tid"/>. Returns <c>false</c> if the triangle is degenerate
     /// (zero area), in which case <paramref name="centroid"/> and <paramref name="normal"/>

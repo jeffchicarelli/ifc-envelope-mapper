@@ -8,80 +8,96 @@ namespace IfcEnvelopeMapper.Engine.Visualization;
 // [Conditional("DEBUG")] API and takes the helper-launch machinery — which
 // is stateful, touches Process/AppDomain — out of the facade file.
 //
-// One instance per AppDomain (static). The helper process is spawned LAZILY
-// on the first Add()/Clear() call, not in the static ctor. This gives tests a
-// chance to call Configure(path, launchServer:false) first to redirect output
-// to a per-test path AND opt out of the helper-process spawn (no port collision,
-// no orphaned dotnet processes when the test runner forks).
-//
-// CLI keeps the default behaviour: first GeometryDebug.* call spawns the helper,
-// which serves the viewer on :5173 and watches the GLB for changes. A
-// parent-PID watchdog inside the helper (see DebugServer/Program.cs) is the
-// backstop for hard crashes where ProcessExit never fires.
+// The mutable state (shape list + output path + launch flag) lives in an
+// AsyncLocal<State> so each logical async context — the production CLI run,
+// each xunit test method — sees its own instance. xunit awaits each test
+// method as its own task, which roots a fresh AsyncLocal scope; the test
+// class is reconstructed per method, so methods inside a class don't share
+// either. No locks, no cross-test interference, no test-side setup. The
+// OS-level helper process is the only thing kept process-wide.
 internal static class DebugSession
 {
+    private sealed class State
+    {
+        public List<DebugShape> Shapes       { get; }      = new();
+        public string           OutputPath   { get; set; } = DEFAULT_OUTPUT_PATH;
+        public bool             LaunchServer { get; set; } = true;
+    }
+
     // %TEMP% (AppData\Local\Temp) is blocked by Chromium's File System Access
     // API as a "system folder" so the file-picker-based fallback cannot read
     // it. C:\temp is also where the CLI runs from (Google Drive Streaming
     // native-DLL workaround), so everything lives in the same folder.
-    private static string _outputPath = Path.Combine(@"C:\temp", "ifc-debug-output.glb");
-    private static bool _launchServer = true;
-    private static bool _serverStarted = false;
+    private static readonly string DEFAULT_OUTPUT_PATH =
+        Path.Combine(@"C:\temp", "ifc-debug-output.glb");
 
-    // Accumulates across the whole run — each GeometryDebug.* call appends
-    // then re-flushes the full list. Production calls Detect on one thread,
-    // but xunit parallelises test classes; the lock makes that safe and
-    // costs nothing outside Debug builds (GeometryDebug.* is
-    // [Conditional("DEBUG")], so Release strips every call site).
-    private static readonly List<DebugShape> _shapes = new();
-    private static readonly object _lock = new();
+    private static readonly AsyncLocal<State?> _state = new();
+    private static State Current => _state.Value ??= new State();
 
-    // Handle to the out-of-process HTTP viewer server. Kept at type scope so
-    // the ProcessExit handler can terminate it on clean shutdown.
+    // Helper process is a single OS resource shared across all flows in this
+    // .NET process. Interlocked.Exchange gives a thread-safe spawn-once with
+    // no lock. _serverStarted only flips to 1 when we actually launch — so a
+    // launchServer:false caller (typical test) doesn't deny later launchServer:true
+    // callers (typical CLI) the ability to spawn.
+    private static int      _serverStarted;
     private static Process? _helperProcess;
 
-    internal static string OutputPath => _outputPath;
+    // Serialises the file write inside Flush. AsyncLocal already isolates the
+    // in-memory shape list per flow, so concurrent Adds don't corrupt each
+    // other's lists; this lock exists purely because the underlying AtomicFile
+    // ".tmp + rename" pattern races when two flows happen to share the same
+    // OutputPath (typical when neither has called Configure). Held only for the
+    // duration of the GLB write — microseconds — so contention is negligible.
+    private static readonly object _flushLock = new();
+
+    internal static string OutputPath => Current.OutputPath;
 
     // Tests call this before any GeometryDebug.* invocation to redirect output
     // to a per-test path and (typically) skip spawning the viewer helper. CLI
-    // never calls this — the default path + helper launch are correct for it.
+    // never needs this — the default path + helper launch are correct for it.
     public static void Configure(string outputPath, bool launchServer = true)
     {
-        lock (_lock)
-        {
-            _outputPath = outputPath;
-            _launchServer = launchServer;
-        }
+        var state = Current;
+        state.OutputPath   = outputPath;
+        state.LaunchServer = launchServer;
     }
 
     public static void Add(DebugShape shape)
     {
-        lock (_lock)
+        var state = Current;
+        EnsureServerStarted(state.LaunchServer);
+        state.Shapes.Add(shape);
+        lock (_flushLock)
         {
-            EnsureServerStarted();
-            _shapes.Add(shape);
-            GltfSerializer.Flush(_shapes, _outputPath);
+            GltfSerializer.Flush(state.Shapes, state.OutputPath);
         }
     }
 
     public static void Clear()
     {
-        lock (_lock)
+        var state = Current;
+        EnsureServerStarted(state.LaunchServer);
+        state.Shapes.Clear();
+        lock (_flushLock)
         {
-            EnsureServerStarted();
-            _shapes.Clear();
-            GltfSerializer.Flush(_shapes, _outputPath);
+            GltfSerializer.Flush(state.Shapes, state.OutputPath);
         }
     }
 
-    private static void EnsureServerStarted()
+    private static void EnsureServerStarted(bool launchServer)
     {
-        if (_serverStarted || !_launchServer)
+        if (!launchServer)
         {
             return;
         }
 
-        _serverStarted = true;
+        // Interlocked.Exchange returns the previous value; if 0, this thread
+        // won the race and proceeds to spawn. All others early-return.
+        if (Interlocked.Exchange(ref _serverStarted, 1) != 0)
+        {
+            return;
+        }
+
         StartHelperProcess();
     }
 
@@ -102,7 +118,7 @@ internal static class DebugSession
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(_outputPath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(Current.OutputPath)!);
 
             var startInfo = new ProcessStartInfo
             {
@@ -132,7 +148,7 @@ internal static class DebugSession
                 port           = 5173,
                 parentPid      = Environment.ProcessId,
                 viewerHtmlPath = viewerHtml,
-                glbPath        = _outputPath,
+                glbPath        = Current.OutputPath,
             };
             _helperProcess.StandardInput.WriteLine(JsonSerializer.Serialize(config));
             _helperProcess.StandardInput.Close();
