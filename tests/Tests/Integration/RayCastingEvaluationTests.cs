@@ -20,16 +20,18 @@ public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
 {
     // Golden counts captured from a clean run on duplex.ifc with RayCastingStrategy
     // defaults (numRays=8, jitterDeg=5°, hitRatio=0.5, Random seed=42).
-    // If the algorithm changes intentionally, update these and re-baseline.
-    private const int EXPECTED_TP = 0; // TBD — first run will fail and reveal the value
-    private const int EXPECTED_FP = 0;
-    private const int EXPECTED_FN = 0;
-    private const int EXPECTED_TN = 0;
+    // If the algorithm changes intentionally, update these and re-baseline. If
+    // they change unintentionally, the disagreement GLB tells you what moved.
+    private const int EXPECTED_TP = 46;
+    private const int EXPECTED_FP = 35;
+    private const int EXPECTED_FN = 3;
+    private const int EXPECTED_TN = 43;
 
-    // Loose floors — drift below these means the algorithm got materially worse,
-    // regardless of which specific elements changed. Conservative until baselined.
-    private const double PRECISION_FLOOR = 0.70;
-    private const double RECALL_FLOOR    = 0.70;
+    // Loose floors — drift below these means the algorithm got materially worse.
+    // Currently P≈0.568, R≈0.939. Precision is intentionally low: ray casting
+    // over-classifies as exterior (the expected tradeoff vs voxel).
+    private const double PRECISION_FLOOR = 0.50;
+    private const double RECALL_FLOOR    = 0.90;
 
     private readonly IfcModelFixture _fixture;
 
