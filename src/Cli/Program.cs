@@ -3,17 +3,15 @@ using System.Diagnostics;
 using IfcEnvelopeMapper.Core.Diagnostics;
 using IfcEnvelopeMapper.Core.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Strategies;
+using IfcEnvelopeMapper.Engine.Visualization;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
 
-#if DEBUG
-using IfcEnvelopeMapper.Engine.Visualization;
-
-// Trigger the debug viewer's static ctor (binds port 5173, writes empty GLB)
-// before the pipeline starts, so the viewer has something to serve immediately.
-GeometryDebug.Clear();
-#endif
+// CLI is the production runner: no viewer helper, no GLB output. The debug
+// emission path is reserved for xunit tests (which keep the default
+// Enabled=true and produce their own per-test disagreement GLBs).
+GeometryDebug.Enabled = false;
 
 using var loggerFactory = LoggerFactory.Create(b => b
     .AddConsole()
@@ -86,12 +84,6 @@ static void RunDetect(FileInfo input, double voxelSize, string strategy)
     sw.Stop();
 
     PrintReport(result, sw.Elapsed);
-
-#if DEBUG
-    Console.WriteLine();
-    Console.WriteLine("Debug viewer still serving. Press any key to exit...");
-    Console.ReadKey();
-#endif
 }
 
 static void PrintReport(DetectionResult result, TimeSpan elapsed)

@@ -64,6 +64,11 @@ internal static class DebugSession
 
     public static void Add(DebugShape shape)
     {
+        if (!GeometryDebug.Enabled)
+        {
+            return;
+        }
+
         var state = Current;
         EnsureServerStarted(state.LaunchServer);
         state.Shapes.Add(shape);
@@ -75,6 +80,11 @@ internal static class DebugSession
 
     public static void Clear()
     {
+        if (!GeometryDebug.Enabled)
+        {
+            return;
+        }
+
         var state = Current;
         EnsureServerStarted(state.LaunchServer);
         state.Shapes.Clear();

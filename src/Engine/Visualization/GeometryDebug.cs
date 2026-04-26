@@ -21,11 +21,20 @@ namespace IfcEnvelopeMapper.Engine.Visualization;
 public static class GeometryDebug
 {
     /// <summary>
+    /// Runtime kill-switch. When <c>false</c>, every <see cref="DebugSession"/>
+    /// emission becomes a no-op even in Debug builds. The CLI sets this to
+    /// <c>false</c> at startup so production runs never spawn the viewer helper
+    /// or write GLBs; xunit tests keep the default (<c>true</c>) so they
+    /// continue to produce per-test disagreement GLBs.
+    /// </summary>
+    public static bool Enabled { get; set; } = true;
+
+    /// <summary>
     /// Redirects GLB output to <paramref name="outputPath"/>. Tests call this
     /// before any other <c>GeometryDebug.*</c> method to isolate artefacts on
     /// disk and typically pass <c>launchServer: false</c> to skip spawning the
-    /// viewer helper process. The CLI never needs this — the default path +
-    /// helper launch are correct for it.
+    /// viewer helper process. The CLI never needs this — it sets
+    /// <see cref="Enabled"/>=<c>false</c> at startup instead.
     /// </summary>
     [Conditional("DEBUG")]
     public static void Configure(string outputPath, bool launchServer = true)
