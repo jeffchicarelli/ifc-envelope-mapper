@@ -8,18 +8,23 @@ namespace IfcEnvelopeMapper.Engine.Visualization;
 // voxel strategy that produces it (only caller). Atomic writes match the GLB
 // flush pattern: tmp + AtomicFile.MoveWithRetry so the viewer's pollers never
 // trip on a mid-flight swap.
+//
+// Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op) and
+// derives its output path from <c>DebugSession.OutputPath</c> so per-flow
+// AsyncLocal isolation gives each xunit test method its own sidecar file —
+// no cross-test races on the shared default `C:\temp` location.
 public static class SidecarWriter
 {
-    // Co-located with the GLB in C:\temp so the whole debug payload lives in
-    // one folder the viewer's File System Access fallback can pick.
-    private static readonly string OccupantsPath =
-        Path.Combine(@"C:\temp", "ifc-debug-occupants.json");
-
     // Emits { voxelSize, origin, nx, ny, nz, occupants: { "x,y,z": [...ids] } }.
     // Sparse: only cells with ≥1 occupant are written. Lets the viewer map a
     // clicked voxel back to the BuildingElements that rasterized into it.
     public static void WriteVoxelOccupants(VoxelGrid3D grid)
     {
+        if (!GeometryDebug.Enabled)
+        {
+            return;
+        }
+
         var occupants = new Dictionary<string, string[]>();
         for (var x = 0; x < grid.NX; x++)
         {
@@ -48,8 +53,17 @@ public static class SidecarWriter
             occupants,
         };
 
-        var tmp = OccupantsPath + ".tmp";
+        // Derive sidecar path next to the GLB so per-flow AsyncLocal output
+        // paths give each test its own sidecar file. e.g.
+        //   GLB    : C:\temp\test-run-XYZ.glb
+        //   sidecar: C:\temp\test-run-XYZ-occupants.json
+        var glbPath     = DebugSession.OutputPath;
+        var dir         = Path.GetDirectoryName(glbPath) ?? @"C:\temp";
+        var stem        = Path.GetFileNameWithoutExtension(glbPath);
+        var sidecarPath = Path.Combine(dir, stem + "-occupants.json");
+
+        var tmp = sidecarPath + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(payload));
-        AtomicFile.MoveWithRetry(tmp, OccupantsPath);
+        AtomicFile.MoveWithRetry(tmp, sidecarPath);
     }
 }
