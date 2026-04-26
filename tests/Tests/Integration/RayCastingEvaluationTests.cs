@@ -1,3 +1,4 @@
+using FluentAssertions.Execution;
 using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Strategies;
 using IfcEnvelopeMapper.Ifc.Evaluation;
@@ -9,45 +10,45 @@ using IfcEnvelopeMapper.Engine.Visualization;
 
 namespace IfcEnvelopeMapper.Tests.Integration;
 
-// End-to-end check of EvaluationPipeline against the bundled duplex.ifc model.
-// Catches accidental drift in the voxel flood-fill detection (TP/FP/FN/TN) and
-// emits a per-test GLB that colour-codes every element by classification result
-// — open `Path.GetTempPath() + EvaluationPipelineTests_disagreement.glb` in any
-// glTF viewer to see exactly which elements moved categories. Debug-config-only.
+// End-to-end check of EvaluationPipeline against the bundled duplex.ifc model
+// using RayCastingStrategy. Catches drift in the per-triangle ray casting
+// classifier (TP/FP/FN/TN) and emits a per-test GLB colour-coded by classification
+// vs ground truth — open `Path.GetTempPath() + RayCastingEvaluationTests_<name>.glb`
+// in any glTF viewer to see exactly which elements moved categories.
 [Trait("Category", "Integration")]
-public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
+public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
 {
-    // Golden counts captured from a clean CLI run on duplex.ifc + voxelSize=0.25.
-    // If the algorithm changes intentionally, update these and re-baseline. If
-    // they change unintentionally, the visual GLB tells you what moved.
-    private const int EXPECTED_TP = 45;
-    private const int EXPECTED_FP = 8;
-    private const int EXPECTED_FN = 4;
-    private const int EXPECTED_TN = 70;
+    // Golden counts captured from a clean run on duplex.ifc with RayCastingStrategy
+    // defaults (numRays=8, jitterDeg=5°, hitRatio=0.5, Random seed=42).
+    // If the algorithm changes intentionally, update these and re-baseline.
+    private const int EXPECTED_TP = 0; // TBD — first run will fail and reveal the value
+    private const int EXPECTED_FP = 0;
+    private const int EXPECTED_FN = 0;
+    private const int EXPECTED_TN = 0;
 
-    // Loose floors for the second test — drift below these means the algorithm
-    // got materially worse, regardless of which specific elements changed.
-    private const double PRECISION_FLOOR = 0.80;  // currently ~0.849
-    private const double RECALL_FLOOR    = 0.85;  // currently ~0.918
-
-    private const double VOXEL_SIZE = 0.25;
+    // Loose floors — drift below these means the algorithm got materially worse,
+    // regardless of which specific elements changed. Conservative until baselined.
+    private const double PRECISION_FLOOR = 0.70;
+    private const double RECALL_FLOOR    = 0.70;
 
     private readonly IfcModelFixture _fixture;
 
-    public EvaluationPipelineTests(IfcModelFixture fixture) => _fixture = fixture;
+    public RayCastingEvaluationTests(IfcModelFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public void Pipeline_OnDuplex_ProducesExpectedCounts()
+    public void Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts()
     {
         // Arrange
-        var gtPath = ResolveGroundTruthPath();
-        var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
+        var gtPath   = ResolveGroundTruthPath();
+        var strategy = new RayCastingStrategy();
 
         // Act
         var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
-        EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_ProducesExpectedCounts));
+        EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts));
 
-        // Assert
+        // Assert — AssertionScope reports all four mismatches in one error so
+        // baselining only takes one test run.
+        using var scope = new AssertionScope();
         result.Counts.TruePositives.Should().Be(EXPECTED_TP);
         result.Counts.FalsePositives.Should().Be(EXPECTED_FP);
         result.Counts.FalseNegatives.Should().Be(EXPECTED_FN);
@@ -55,11 +56,11 @@ public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
     }
 
     [Fact]
-    public void Pipeline_OnDuplex_PrecisionRecallAboveFloor()
+    public void Pipeline_OnDuplex_RayCasting_PrecisionRecallAboveFloor()
     {
         // Arrange
-        var gtPath = ResolveGroundTruthPath();
-        var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
+        var gtPath   = ResolveGroundTruthPath();
+        var strategy = new RayCastingStrategy();
 
         // Act
         var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
@@ -76,12 +77,10 @@ public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
         return Path.Combine(dataDir, "ground-truth", "duplex.csv");
     }
 
-    // Always emits — the GLB is cheap and on assertion failure the developer
-    // already has the artefact ready to open. No try/catch acrobatics needed.
     private static void EmitDisagreementGlb(EvaluationResult result, string testName)
     {
 #if DEBUG
-        var glbPath = Path.Combine(Path.GetTempPath(), $"EvaluationPipelineTests_{testName}.glb");
+        var glbPath = Path.Combine(Path.GetTempPath(), $"RayCastingEvaluationTests_{testName}.glb");
         GeometryDebug.Configure(glbPath, launchServer: false);
         GeometryDebug.Clear();
 

@@ -33,6 +33,7 @@ internal static class GltfSerializer
         // order in the current runtime), so layer buttons appear in the order the
         // first call with each (label, color) arrived.
         var meshes   = new Dictionary<(string label, string color), DMesh3>();
+
         // Per-element emissions (MeshShape with GlobalId) skip the merge path so
         // the viewer gets one node per element with { globalId, ifcType } extras.
         var elements = new List<MeshShape>();
@@ -43,11 +44,12 @@ internal static class GltfSerializer
         {
             switch (shape)
             {
-                case MeshShape m when m.GlobalId is not null:
+                case MeshShape { GlobalId: not null } m:
                 {
                     elements.Add(m);
                     break;
                 }
+
                 case MeshShape m:
                 {
                     var key = (m.Label, m.Color);
@@ -56,9 +58,11 @@ internal static class GltfSerializer
                         acc = new DMesh3();
                         meshes[key] = acc;
                     }
+
                     AppendMesh(acc, m.Mesh);
                     break;
                 }
+
                 case LinesShape l:
                 {
                     var key = (l.Label, l.Color);
@@ -67,9 +71,11 @@ internal static class GltfSerializer
                         acc = new List<(Vector3d, Vector3d)>();
                         lines[key] = acc;
                     }
+
                     acc.AddRange(l.Segments);
                     break;
                 }
+
                 case PointsShape p:
                 {
                     var key = (p.Label, p.Color);
@@ -78,6 +84,7 @@ internal static class GltfSerializer
                         acc = new List<Vector3d>();
                         points[key] = acc;
                     }
+
                     acc.AddRange(p.Points);
                     break;
                 }
@@ -85,10 +92,25 @@ internal static class GltfSerializer
         }
 
         var scene = new SceneBuilder();
-        foreach (var ((label, color), mesh)   in meshes)   AddMesh(scene, mesh, color, label);
-        foreach (var m                        in elements) AddElementMesh(scene, m);
-        foreach (var ((label, color), segs)   in lines)    AddLines(scene, segs.ToArray(), color, label);
-        foreach (var ((label, color), pts)    in points)   AddPoints(scene, pts.ToArray(), color, label);
+        foreach (var ((label, color), mesh) in meshes)
+        {
+            AddMesh(scene, mesh, color, label);
+        }
+
+        foreach (var m in elements)
+        {
+            AddElementMesh(scene, m);
+        }
+
+        foreach (var ((label, color), segs) in lines)
+        {
+            AddLines(scene, segs.ToArray(), color, label);
+        }
+
+        foreach (var ((label, color), pts) in points)
+        {
+            AddPoints(scene, pts.ToArray(), color, label);
+        }
 
         // SaveGLB writes a single self-contained binary file (JSON + buffers embedded).
         // SaveGLTF would produce a split .gltf + .bin pair, which the browser-based
@@ -118,12 +140,14 @@ internal static class GltfSerializer
                 dest.AppendVertex(source.GetVertex(vid));
             }
         }
+
         for (var tid = 0; tid < source.MaxTriangleID; tid++)
         {
             if (!source.IsTriangle(tid))
             {
                 continue;
             }
+
             var t = source.GetTriangle(tid);
             dest.AppendTriangle(new Index3i(t.a + offset, t.b + offset, t.c + offset));
         }
@@ -197,6 +221,7 @@ internal static class GltfSerializer
         }
 
         var instance = scene.AddRigidMesh(mb, Matrix4x4.Identity);
+
         // InstanceBuilder.Extras is read-only; the writable one lives on the
         // transformer (RigidTransformer inherits ContentTransformer.Extras),
         // typed as JsonNode (SharpGLTF alpha0032+ migrated off its own JsonContent).
@@ -211,7 +236,7 @@ internal static class GltfSerializer
                                   string color, string label)
     {
         var mb   = new MeshBuilder<VertexPosition>(label);
-        var prim = mb.UsePrimitive(MakeMaterial(color, label), 1); // 1 = LINES
+        var prim = mb.UsePrimitive(MakeMaterial(color, label), 2); // 2 vertices/primitive = LINES
 
         foreach (var (a, b) in segs)
         {
@@ -225,7 +250,7 @@ internal static class GltfSerializer
                                    string color, string label)
     {
         var mb   = new MeshBuilder<VertexPosition>(label);
-        var prim = mb.UsePrimitive(MakeMaterial(color, label), 0); // 0 = POINTS
+        var prim = mb.UsePrimitive(MakeMaterial(color, label), 1); // 1 vertex/primitive = POINTS
 
         foreach (var p in points)
         {

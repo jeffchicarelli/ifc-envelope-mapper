@@ -39,6 +39,46 @@ public static class DMesh3Extensions
     }
 
     /// <summary>
+    /// Translates every vertex of <paramref name="mesh"/> by <paramref name="offset"/>
+    /// in place. Triangle indices and topology are unchanged. Used to re-anchor
+    /// georeferenced IFC models near the origin so bounding-box-driven structures
+    /// (e.g. <c>VoxelGrid3D</c>) don't overflow .NET's array-size limits.
+    /// </summary>
+    public static void Translate(this DMesh3 mesh, Vector3d offset)
+    {
+        foreach (var vid in mesh.VertexIndices())
+        {
+            mesh.SetVertex(vid, mesh.GetVertex(vid) + offset);
+        }
+    }
+
+    /// <summary>
+    /// Computes the geometric centroid and outward unit normal of triangle
+    /// <paramref name="tid"/>. Returns <c>false</c> if the triangle is degenerate
+    /// (zero area), in which case <paramref name="centroid"/> and <paramref name="normal"/>
+    /// are set to <see cref="Vector3d.Zero"/>.
+    /// </summary>
+    public static bool TryGetTriangleCentroidAndNormal(
+        this DMesh3 mesh, int tid, out Vector3d centroid, out Vector3d normal)
+    {
+        var t  = mesh.GetTriangle(tid);
+        var v0 = mesh.GetVertex(t.a);
+        var v1 = mesh.GetVertex(t.b);
+        var v2 = mesh.GetVertex(t.c);
+        var n  = (v1 - v0).Cross(v2 - v0);
+        if (n.LengthSquared < 1e-20)
+        {
+            centroid = Vector3d.Zero;
+            normal   = Vector3d.Zero;
+            return false;
+        }
+
+        centroid = (v0 + v1 + v2) / 3.0;
+        normal   = n.Normalized;
+        return true;
+    }
+
+    /// <summary>
     /// Builds a new mesh containing only the given triangles from <paramref name="source"/>.
     /// Each triangle gets its own three vertices (no vertex sharing), so the result has
     /// <c>3 × triangleCount</c> vertices. Triangle ids that no longer exist in the source
