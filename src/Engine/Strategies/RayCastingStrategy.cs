@@ -7,7 +7,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Domain.Element;
 using IfcEnvelopeMapper.Core.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
-using IfcEnvelopeMapper.Core.Pipeline.Detection;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using Microsoft.Extensions.Logging;
 
 #if DEBUGMESH

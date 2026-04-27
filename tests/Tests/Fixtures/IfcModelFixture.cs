@@ -1,4 +1,3 @@
-using IfcEnvelopeMapper.Core.Pipeline.Loading;
 using IfcEnvelopeMapper.Ifc.Loading;
 
 namespace IfcEnvelopeMapper.Tests.Fixtures;

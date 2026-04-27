@@ -1,6 +1,6 @@
 using System.Text;
-using IfcEnvelopeMapper.Core.Pipeline.Detection;
-using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Strategies;
 using IfcEnvelopeMapper.Ifc.Evaluation;
 using IfcEnvelopeMapper.Tests.Fixtures;

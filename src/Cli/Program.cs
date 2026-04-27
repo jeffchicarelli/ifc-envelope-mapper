@@ -1,9 +1,9 @@
 using System.CommandLine;
 using System.Diagnostics;
 using IfcEnvelopeMapper.Core.Diagnostics;
-using IfcEnvelopeMapper.Core.Pipeline.Bcf;
-using IfcEnvelopeMapper.Core.Pipeline.Detection;
-using IfcEnvelopeMapper.Core.Pipeline.Reporting;
+using IfcEnvelopeMapper.Engine.Pipeline.Bcf;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+using IfcEnvelopeMapper.Engine.Pipeline.Reporting;
 using IfcEnvelopeMapper.Engine.Strategies;
 using IfcEnvelopeMapper.Engine.Visualization;
 using IfcEnvelopeMapper.Ifc.Loading;
