@@ -1,7 +1,26 @@
 # Plano de Implementação — IfcEnvelopeMapper
 
 > Documento vivo. Atualizar a cada sessão de desenvolvimento.
-> Última atualização: 2026-04-24
+> Última atualização: 2026-04-27 (reconciliação P4.1 ✅)
+
+---
+
+## Sumário do projeto
+
+**Problema.** Identificar elementos de fachada em modelos IFC é trabalho manual em ferramentas BIM. Este TCC investiga se um método **puramente geométrico** (sem usar metadados como `IsExternal`) consegue automatizar essa identificação preservando rastreabilidade ao `GlobalId` IFC de cada elemento.
+
+**Método.** Pipeline em dois estágios:
+1. **Detecção** (`IEnvelopeDetector`) — três estratégias comparadas:
+   *Voxel + flood-fill uniforme* (van der Vaart 2022, ablation baseline),
+   *ray casting por face* (Ying 2022, baseline externo),
+   *Hierarchical Voxel Flood-Fill* (contribuição original).
+2. **Agrupamento** (`IFacadeGrouper`) — DBSCAN sobre esfera de Gauss + grafo de adjacência espacial = `Facade[]`.
+
+**Saídas.** JSON (primário, schema v1 atual; v2 após P4.3 com fachadas; v3 após P6.4 com LoDs), BCF 2.1 (revisão assistida), GLB para debug visual (ADR-17), múltiplos LoDs 0.x–4.x do framework Biljecki/van der Vaart (ADR-15).
+
+**Validação.** Ground truth de especialistas AEC (Fase 8); contagens TP/FP/FN/TN + Precisão/Recall por estratégia × modelo. F1 e Kappa intencionalmente fora — ADR-12.
+
+**Ferramentas auxiliares.** `IfcInspector` (P4.2) — triagem de modelos para selecionar 5–8 candidatos com cobertura de casos adversariais (átrios, pátios abertos, pilotis). Não faz parte do algoritmo de detecção.
 
 ---
 
@@ -18,7 +37,7 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 | **Envoltório** *(building envelope)* | Conjunto de todas as superfícies exteriores de uma edificação que separam o ambiente interior do externo, em todas as orientações (paredes, coberturas, pisos, aberturas). Definido funcionalmente pela separação interior/exterior (ASHRAE 90.1; Sadineni et al., 2011). Não existe como entidade no schema IFC. |
 | **Casca geométrica** *(building shell)* | Superfície envolvente computada por operações geométricas (voxelização, alpha wrapping). Artefato geométrico puro, sem rastreabilidade aos elementos IFC de origem. |
 | **Fachada** *(facade)* | Região contínua da superfície exterior do envoltório, caracterizada por uma orientação dominante (vetor normal médio das faces convergentes). Fachada é artefato da superfície, não um agrupamento de elementos. Elementos IFC são *participantes* (relação muitos-para-muitos): um elemento de canto participa de duas fachadas. Inclui qualquer orientação — sem limiar angular arbitrário. Não existe no schema IFC; é inferida computacionalmente (ver `conceitos-fundamentais.md`). |
-| **Face** | Unidade atômica de superfície exterior: conjunto de triângulos de um elemento IFC que pertencem a um mesmo plano ajustado. Preserva rastreabilidade ao `BuildingElement` de origem. |
+| **Face** | Unidade atômica de superfície exterior: conjunto de triângulos de um elemento IFC que pertencem a um mesmo plano ajustado. Preserva rastreabilidade ao `Element` de origem. |
 | **Plano dominante** | Direção média de um grupo de normais detectado por DBSCAN sobre a esfera de Gauss. Base para o agrupamento de elementos em fachadas. |
 | **Ground truth** | Conjunto de rótulos de referência (elementos marcados como fachada / não-fachada) produzido por rotulação manual de especialistas AEC. Base para contagens TP/FP/FN/TN e cálculo de Precisão e Recall. |
 | **TP / FP / FN / TN** | Contagens da matriz de confusão de classificação binária. TP (True Positive): classificados como exterior e realmente exteriores. FP (False Positive): classificados como exterior mas são interiores. FN (False Negative): exteriores não detectados. TN (True Negative): interiores corretamente identificados. Estilo de reporte seguindo van der Vaart (2022). |
@@ -26,6 +45,8 @@ Este documento pressupõe familiaridade com os termos abaixo. Leitores sem forma
 | **DBSCAN** | Density-Based Spatial Clustering of Applications with Noise — algoritmo de clustering sem número fixo de grupos. Usado para agrupar normais de faces na esfera de Gauss e detectar planos dominantes. |
 | **BVH** | Bounding Volume Hierarchy — estrutura de aceleração espacial para ray casting. |
 | **WWR** | Window-to-Wall Ratio — razão entre área de janelas e área total de parede por fachada. Métrica usada como prova de aplicabilidade do método. |
+| **Átrio** *(atrium)* | Volume vertical aberto no interior de um edifício, atravessando múltiplos pavimentos. Pode ser coberto (skylight de vidro — topologicamente fechado) ou aberto (poço de luz — topologicamente conectado ao exterior pelo topo). Caso adversarial canônico para detectores de envoltório: ray casting tipicamente classifica paredes do átrio como interior; voxel flood-fill com átrio aberto as classifica corretamente como exterior. Motiva a contribuição HVFF (P5). |
+| **Pátio aberto** *(courtyard)* | Cavidade interior de planta baixa em U/L/O, sem cobertura, que cria um anel interno na projeção 2D do footprint. Detectado em P4.2 (Inspector) via análise topológica de `NetTopologySuite`. |
 
 ---
 
@@ -41,9 +62,9 @@ Construir uma ferramenta C#/.NET que identifica automaticamente elementos de fac
 
 O trabalho propõe e avalia **três estratégias de detecção** em modelos IFC de tipologias distintas, com contagens TP/FP/FN/TN + Precisão/Recall reportadas por estratégia:
 
-1. **Voxelização uniforme com *flood-fill* 3-fases** (van der Vaart 2022) — **ablation baseline**. Grade de voxels cúbicos de lado fixo; `GrowExterior → GrowInterior → GrowVoid` + `FillGaps`. Fases 1–2 concluídas.
-2. ***Ray casting* por face** (Ying 2022) — **baseline externo**. BVH sobre todos os triângulos; raios partindo de cada face na direção da normal; face é exterior se o raio escapa sem interceptar outro elemento. Fase 3.
-3. ***Hierarchical Voxel Flood-Fill*** — **contribuição original**. Voxelização multi-resolução (octree ou adaptativa): células grandes no espaço livre, refinamento progressivo na vizinhança da casca. Mesmo contrato de classificação do baseline uniforme (TP/FP/FN/TN + Precisão/Recall + rastreabilidade por `GlobalId`), com ganho esperado em precisão em detalhes finos (ex: janelas <300mm) sem inflar o custo total do *flood-fill*. Fase 8.
+1. **Voxelização uniforme com *flood-fill* 3-fases** (van der Vaart 2022) — **ablation baseline**. Grade de voxels cúbicos de lado fixo; `GrowExterior → GrowInterior → GrowVoid` + `FillGaps`. Concluída em P2.
+2. ***Ray casting* por face** (Ying 2022) — **baseline externo**. BVH sobre todos os triângulos; raios partindo de cada face na direção da normal; face é exterior se o raio escapa sem interceptar outro elemento. Concluída em P3.
+3. ***Hierarchical Voxel Flood-Fill*** — **contribuição original**. Voxelização multi-resolução (octree ou adaptativa): células grandes no espaço livre, refinamento progressivo na vizinhança da casca. Mesmo contrato de classificação do baseline uniforme (TP/FP/FN/TN + Precisão/Recall + rastreabilidade por `GlobalId`), com ganho esperado em precisão em detalhes finos (ex: janelas <300mm) sem inflar o custo total do *flood-fill*. P5 (alvo).
 
 A decisão é defendida em ADR-14 (revisada em 2026-04-24). A comparação algorítmica das três estratégias aparece no capítulo de Resultados.
 
@@ -58,16 +79,17 @@ A decisão é defendida em ADR-14 (revisada em 2026-04-24). A comparação algor
 
 ### Bibliotecas Externas
 
-| Biblioteca | NuGet Package | Uso | Projeto |
-|---|---|---|---|
-| **xBIM Essentials** | `Xbim.Essentials` | Leitura de modelos IFC, schema IFC4 | Ifc |
-| **xBIM Geometry** | `Xbim.Geometry` | Triangulação de geometria IFC via `Xbim3DModelContext` | Ifc |
-| **geometry4Sharp** | `geometry4Sharp` | Mesh 3D (`DMesh3`), BVH (`DMeshAABBTree3`), normais (`MeshNormals`), plane-fit PCA (`OrthogonalPlaneFit3`), eigen (`SymmetricEigenSolver`), esfera de Gauss (`NormalHistogram`) — namespace `g4`; fork ativo de `geometry3Sharp`. Tri-AABB ausente — implementado via SAT próprio (Akenine-Möller 1997). Mapeamento completo em ADR-13. | Core + Geometry + Algorithms |
-| **NetTopologySuite** | `NetTopologySuite` | Geometria **2D apenas** (containment, projeção em plano, `STRtree` 2D para união de polígonos no LoD 0, ADR-15). Não é usado para indexação 3D — ver ADR-13 para queries 3D. | Geometry + Lod |
-| **DBSCAN** | `DBSCAN` (NuGet) | Clustering de normais sobre a esfera de Gauss | Algorithms |
-| **QuikGraph** | `QuikGraph` | Grafo de adjacência espacial, componentes conectados | Algorithms |
-| **SharpGLTF** | `SharpGLTF.Toolkit` | Escrita de glTF (scenes, nodes, per-vertex color, extras) para debug visual. Padrão standard: qualquer browser/CloudCompare/Blender lê. (ADR-16) | Debug |
-| **System.CommandLine** | `System.CommandLine` | Parser de argumentos CLI | Cli |
+| Biblioteca | NuGet Package | Uso | Projeto | Status |
+|---|---|---|---|---|
+| **xBIM Essentials** | `Xbim.Essentials` | Leitura de modelos IFC, schema IFC4 | Ifc | ✅ em uso |
+| **xBIM Geometry** | `Xbim.Geometry` | Triangulação de geometria IFC via `Xbim3DModelContext` | Ifc | ✅ em uso |
+| **geometry4Sharp** | `geometry4Sharp` | Mesh 3D (`DMesh3`), BVH (`DMeshAABBTree3`), normais (`MeshNormals`), plane-fit PCA (`OrthogonalPlaneFit3`), eigen (`SymmetricEigenSolver`), esfera de Gauss (`NormalHistogram`) — namespace `g4`; fork ativo de `geometry3Sharp`. Tri-AABB ausente — implementado via SAT próprio (Akenine-Möller 1997). Mapeamento completo em ADR-13. | Core, Engine | ✅ em uso |
+| **SharpGLTF** | `SharpGLTF.Toolkit` | Escrita de GLB (scenes, nodes, per-vertex color, extras) para debug visual. Padrão standard: qualquer browser/CloudCompare/Blender lê (ADR-17). | Engine | ✅ em uso |
+| **System.CommandLine** | `System.CommandLine` | Parser de argumentos CLI | Cli | ✅ em uso |
+| **Microsoft.Extensions.Logging** | `Microsoft.Extensions.Logging` | Logging ambient via `AppLog` (Console sink em produção; injetado em `XbimServices`) | Core, Cli | ✅ em uso |
+| **NetTopologySuite** | `NetTopologySuite` | Geometria **2D apenas** (containment, projeção em plano, `STRtree` 2D para união de polígonos no LoD 0). Não é usado para indexação 3D — ver ADR-13 para queries 3D. | Engine | ⏳ alvo P4.2 (Inspector footprint) e P6.1 (LoD 0.x) |
+| **DBSCAN** | `DBSCAN` (NuGet) | Clustering de normais sobre a esfera de Gauss | Engine | ⏳ alvo P4.3 |
+| **QuikGraph** | `QuikGraph` | Grafo de adjacência espacial, componentes conectados | Engine | ⏳ alvo P4.3 |
 
 **Política de bibliotecas:** usar bibliotecas externas agora e substituir por implementação própria somente se uma biblioteca não for extensivamente utilizada no projeto. Não prematuramente otimizar.
 
@@ -78,196 +100,139 @@ A decisão é defendida em ADR-14 (revisada em 2026-04-24). A comparação algor
 ### Hierarquia conceitual
 
 ```
-ModelLoadResult
-    ├── Elements[]     ← átomos classificáveis (sempre com geometria)
-    └── Groups[]       ← agregadores organizacionais (IfcCurtainWall, IfcStair…)
+Capability interfaces (Core/Domain/Interfaces/) — contratos ortogonais:
+    IIfcEntity     ← identidade (GlobalId, Name)
+    IBoxEntity     ← AxisAlignedBox3d GetBoundingBox()
+    IMeshEntity    ← DMesh3 GetMesh()
+
+IProductEntity (Ifc/Domain/Interfaces/) — navegação espatial IFC:
+    GetIfcProduct(), GetIfcSite(), GetIfcBuilding(), GetIfcStorey()
+
+Concretes (cada um implementa as interfaces aplicáveis + IEquatable<T>):
+    Element  (Ifc/Domain/Element.cs)
+        ← IIfcEntity, IProductEntity, IMeshEntity, IBoxEntity, IEquatable<Element>
+        ← IfcProductContext _ctx
+        ← Lazy<DMesh3>           _lazyMesh   (carrega sob demanda)
+        ← Lazy<AxisAlignedBox3d> _lazyBbox   (de XbimShapeInstance.BoundingBox)
+        ← IReadOnlyList<Element> Children    (vazio = átomo; populado = composite)
+        ← string? GroupGlobalId              (back-ref opcional ao composite pai)
+
+    Storey   (Ifc/Domain/Storey.cs)
+        ← IIfcEntity, IEquatable<Storey>
+        ← double Elevation     (sem mesh, sem bbox — apenas marcador de elevação)
+
+    Space    (Ifc/Domain/Space.cs — P4.2)
+        ← Element subclass: LongName + NetVolumeM3 lidos de Pset_SpaceCommon
+
+ModelLoadResult (output de XbimModelLoader.Load — IDisposable):
+    ├── Elements[]   ← Element (atômicos + composites com Children populado)
+    ├── Storeys[]    ← Storey
+    └── Metadata     ← ModelMetadata (schema IFC, ferramenta de autoria, project name)
 
 Envelope (totalidade das faces exteriores com rastreabilidade)
-    └── input para →
-        Facade[] (região de superfície por plano dominante)
-            └── Face[] (superfície atômica exterior — unidade primária)
-                └── BuildingElement (rastreável ao IFC via GlobalId)
+    └── input para → IFacadeGrouper → Facade[]
+        └── Face[] (superfície atômica exterior — unidade primária)
+            └── Element (rastreável ao IFC via GlobalId)
 
-Relação Facade ↔ BuildingElement: MUITOS-PARA-MUITOS
-  - Uma Face pertence a exatamente 1 BuildingElement e 1 Facade
-  - Um BuildingElement pode ter Faces em 0, 1 ou N Facades
-  - Uma Facade agrega Faces de M BuildingElements diferentes
-
-Relação BuildingElement ↔ BuildingElementGroup: MUITOS-PARA-UM (opcional)
-  - Um Element que veio de um agregador IFC tem GroupGlobalId preenchido
-  - Um Group referencia seus Elements via lista
-  - Algoritmos consomem apenas Elements; Groups servem a relatório e Viewer
+Relações:
+  Facade ↔ Element: muitos-para-muitos (canto participa de 2+ fachadas)
+  Element ↔ Element-composite: muitos-para-um (via Children + GroupGlobalId)
 ```
 
-> **ModelLoadResult** é o que o loader retorna — separa átomos (o que se classifica) de agregadores (o que se usa para rastreabilidade de IfcCurtainWall/IfcStair).
-> **Envelope** não contém `Facade[]` — é input para o `IFacadeGrouper`, que produz `Facade[]`.
-> **Facade** referencia Envelope (parent) e contém um subconjunto de `Face[]`.
-> **Facade.Elements** retorna os elementos que possuem ≥1 Face nesta região.
+### IfcProductContext
 
-### BuildingElementContext — record struct (ADR-08)
+```csharp
+public readonly record struct IfcProductContext(
+    IIfcProduct          Product,
+    IIfcBuilding?        Building = null,
+    IIfcBuildingStorey?  Storey   = null,
+    IIfcSite?            Site     = null);
+```
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Element/BuildingElementContext.cs`
+Bundle imutável que `Element` carrega como único campo de identidade IFC. Sucede `BuildingElementContext` (que guardava `string?` GlobalIds): agora carrega as **referências IFC inteiras**, eliminando lookup por id e dando acesso direto a Pset_*, material e relações via `_ctx.Product`. O resolver da ADR-10 permanece útil para queries cruzadas (ex.: "todos os elementos contidos neste IfcSpace") mas não é mais o caminho primário de navegação.
 
-### BuildingElement — átomo classificável (ADR-08, ADR-11)
+### Interfaces de capacidade
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Element/BuildingElement.cs`
+| Interface | Contrato | Implementadores |
+|---|---|---|
+| `IIfcEntity` (Core) | `string GlobalId`, `string? Name` | `Element`, `Storey` |
+| `IBoxEntity` (Core) | `AxisAlignedBox3d GetBoundingBox()` | `Element` |
+| `IMeshEntity` (Core) | `DMesh3 GetMesh()` | `Element` |
+| `IProductEntity` (Ifc) | `GetIfcProduct/Site/Building/Storey()` | `Element` |
 
-**Por que anêmico (sem `BoundingBox`/`Centroid` cacheados)?** Simplicidade e imutabilidade por construção. Quem precisa, chama `element.Mesh.GetBounds().Center` no ponto de uso — `geometry4Sharp` já caminha o mesh uma vez e o custo é negligível frente ao DBSCAN/ray casting.
+`IBoxEntity` e `IMeshEntity` são siblings — não há herança entre elas. `Storey` é puro `IIfcEntity` (sem extent, sem mesh — apenas `Elevation`). `IProductEntity` vive em `Ifc/` porque expõe tipos `xBIM` — mantém `Core` desacoplado da lib IFC.
 
-**Por que `IEquatable<BuildingElement>` por `GlobalId`?** Usar `HashSet<BuildingElement>`, `Distinct()` e `Dictionary<BuildingElement, T>` sem lambdas de key selector. `GlobalId` é identidade natural do IFC.
+### Decisões de design
 
-**Por que `required init` e não construtor?** Construção por *object initializer* deixa os testes legíveis (`new BuildingElement { GlobalId = "…", IfcType = "IfcWall", Mesh = mesh }`) e obriga cada campo a ser fornecido. `readonly record struct` em `Context` permite defaults nulos sem boilerplate.
+**Por que métodos (`GetMesh()`, `GetBoundingBox()`) em vez de propriedades?** Sinaliza honestamente que pode haver custo (lazy load via `_lazyMesh.Value`). Propriedade sugere campo trivial — semântica errada quando a chamada dispara triangulação ou tradução de bbox.
 
-**Por que `sealed class` e não `record`?** `DMesh3` não implementa value equality — `record` geraria equality sintética que compara `Mesh` por referência. Equality aqui é por identidade IFC (`GlobalId`), então implementamos explicitamente.
+**Por que `Lazy<DMesh3>` + `Lazy<AxisAlignedBox3d>` e `ModelLoadResult : IDisposable`?** Carregar mesh é caro (tradução xBIM → DMesh3). O loader **não materializa todos os meshes** no `Load()`: ele captura closures sobre o `IfcStore` aberto e o `Xbim3DModelContext`, e materializa por demanda no primeiro `GetMesh()`. Consumidor que só precisa de bbox (Inspector, filtros) nunca paga o custo. Bbox vem de `XbimShapeInstance.BoundingBox` (xBIM já em coords mundo) — também lazy. Para isso, o `IfcStore` tem que ficar aberto pela vida do `ModelLoadResult` — daí `IDisposable`.
 
-### BuildingElementGroup — agregador organizacional (ADR-11)
+**Por que cada concrete implementa `IEquatable<T>` direto, sem classe abstrata?** A duplicação de equality é ~5 linhas (`Equals`, `GetHashCode`, `==`/`!=` opcionais). Trade contra: classe abstrata força hierarquia rígida e atrita com `Storey` (sem mesh) coexistindo com `Element` (com mesh). Sem base, cada concrete define apenas as interfaces que faz sentido implementar — `Storey` é puro `IIfcEntity`, `Element` empilha quatro. Equality continua por `GlobalId`.
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Element/BuildingElementGroup.cs`
+**Por que composites são `Element` com `Children` populado, e não classe `ElementGroup` separada?** Modelo único elimina a dicotomia "átomo vs grupo" do código de consumo. Algoritmo de detecção (`Detect(IReadOnlyList<Element>)`) vê a mesma forma para parede atômica e cortina de vidro composite — quem quiser navegar para os painéis lê `element.Children`. `IfcCurtainWall` carrega seu próprio mesh (mesclagem dos filhos via `DMesh3Extensions.Merge`, lazy) e os 7 painéis aparecem em `Children`, cada um com seu mesh independente.
 
-**Por que separar `Element` e `Group`?** Um modelo único com `Mesh` opcional + `Children[]` opcional cria estados inválidos (átomo com children, agregador sem children). O split elimina isso por construção: `Element` sempre tem mesh, `Group` sempre tem `Elements` não-vazia.
+**Por que `class` e não `record`?** `DMesh3` (e `IIfcProduct`) não implementam value equality. Records gerariam equality sintética comparando referências de mesh — errado para identidade IFC. Equality é por `GlobalId`, implementada explicitamente.
 
-### ModelLoadResult
+### Para que servem Space e Storey
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Loading/ModelLoadResult.cs`
+`Space` e `Storey` **não são inputs do algoritmo de detecção** — este consome apenas `Element[]`. São usados por:
 
-### Face — superfície atômica exterior (ADR-04)
+1. **`IfcInspector` (P4.2)** — triagem de modelos para os experimentos: volume de spaces como heurística de átrio, contagem de storeys, busca textual em `Space.LongName`. Output alimenta `00_Manuais_e_Referencias/datasets-ifc.md`.
+2. **Geradores de LoD (P6)** — `Lod02StoreyFootprintsGenerator` (footprints por andar), `Lod12StoreyBlocksGenerator` (blocos extrudados por pavimento), `Lod22DetailedRoofWallsStoreysGenerator` (shells detalhadas com slabs por andar). Storey vira referência espacial; Space pode entrar em LoDs futuros que descrevam volumes habitáveis.
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Surface/Face.cs`
+### Surface types
 
-**Rastreabilidade sem duplicação:** `Face` não armazena `DMesh3`. Os triângulos são lidos por `Element.Mesh.GetTriangle(id)` para cada `id in TriangleIds`. `face.Element.GlobalId` já dá o link ao IFC sem lookup externo.
+- `Envelope` — totalidade das faces exteriores (input do agrupamento)
+- `Facade` — região de superfície por plano dominante (output do `IFacadeGrouper`); referencia `Envelope` parent + subconjunto de `Face[]`
+- `Face` — superfície atômica exterior, unidade primária. **Não armazena `DMesh3`** — triângulos lidos via `Element.GetMesh().GetTriangle(id)` para cada `id in TriangleIds`; `face.Element.GlobalId` dá o link ao IFC
 
-### Envelope — casca + faces exteriores
+### Acesso cru ao IIfcProduct (ADR-10 — parcialmente obsoleta)
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Surface/Envelope.cs`
+A partir de P4.1, `Element._ctx.Product` (e os equivalentes para Site/Building/Storey) é o caminho primário para qualquer metadata IFC — sem lookup, sem indexação, retorno O(1). `XbimIfcProductResolver` (em `src/Ifc/Resolver/`) **continua útil** para queries cruzadas que partem do `IfcStore` (ex.: "todos os IfcProducts de um certo tipo", "elementos contidos num IfcSpace via `IfcRelContainedInSpatialStructure`"). Lifetime: o resolver e o context dependem do `IfcStore` aberto — `ModelLoadResult` é `IDisposable` e gerencia o lifetime.
 
-### Facade — região de superfície por plano dominante
+### Interfaces de pipeline
 
-> Implementação em `src/IfcEnvelopeMapper.Core/Surface/Facade.cs`
-
-### Interfaces e tipos de pipeline
-
-> Tipos em `src/Core/Pipeline/Loading/` (`ModelLoadResult`, `DefaultElementFilter`) e `Pipeline/Detection/` (`IDetectionStrategy`, `IFaceExtractor`, `DetectionResult`, `ElementClassification`).
->
-> Reorganização 2026-04-23: as interfaces `IModelLoader`, `IElementFilter`, `IIfcProductResolver` e `IFacadeGrouper` foram removidas — eram interfaces com implementação única (`XbimModelLoader`, `DefaultElementFilter`, `XbimIfcProductResolver`) ou sem nenhuma implementação (`IFacadeGrouper`, planejada para P5). Quando segunda implementação for necessária (ex.: `RayCastingStrategy` baseline para `IDetectionStrategy`), a interface volta naturalmente.
-
-### Acesso cru ao IIfcProduct (ADR-10)
-
-Mora na camada Ifc. Cli e testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext` (properties de `Pset_*`, material, tag, relações como `IfcRelConnectsPathElements`):
-
-> Implementação em `src/Ifc/Resolver/XbimIfcProductResolver.cs` (classe selada; sem interface — apenas `IDisposable`).
-
-Index em `Dictionary` evita busca linear em modelos com milhares de elementos. Lifetime: o resolver precisa do `IfcStore` aberto; gerenciar via `using` ou escopo de DI.
-
-### Reporting
-
-> Implementações em `src/IfcEnvelopeMapper.Core/Detection/DetectionResult.cs` e `ElementClassification.cs`
+`IEnvelopeDetector`, `IFaceExtractor`, `DetectionResult`, `ElementClassification` em `src/Engine/Pipeline/Detection/`. Pipeline migrou de `Core` para `Engine` em P4.1 (Engine passa a referenciar `Ifc`; Core continua puro). Interfaces com implementação única (`IModelLoader`, `IIfcProductResolver`) e `IFacadeGrouper` sem implementação foram removidas — voltam naturalmente quando segunda implementação for necessária.
 
 ---
 
-## Estrutura do Projeto (5 projetos src + 1 testes)
+## Estrutura do Projeto
 
-> Reorganização 2026-04-23 (Opção C com refinamento Domain/Pipeline + extension methods): pastas curtas (`src/Core`, `src/Engine`…) com `RootNamespace` + `AssemblyName` mantendo o prefixo `IfcEnvelopeMapper.*` para namespaces e DLLs. `Core` agrupa todo conteúdo conceitual (domínio + pipeline + matemática como extensions); `Engine` fica restrito ao que tem dependência pesada (estratégias + visualização SharpGLTF).
+5 projetos `src/` + 1 testes. Pastas curtas (`src/Core`, `src/Engine`…); namespaces e DLLs mantêm prefixo `IfcEnvelopeMapper.*` via `RootNamespace` + `AssemblyName`.
 
-```
-IfcEnvelopeMapper/
-├── docs/
-│   └── plano.md                          ← este arquivo
-├── scripts/
-│   └── run-from-temp.ps1                 ← workaround Google Drive Streaming (xBIM native DLLs)
-├── tools/
-│   └── debug-viewer/                     ← HTML + three.js local (ADR-16/17)
-│       └── index.html
-│
-├── src/
-│   ├── Core/                             ← domínio + pipeline + math primitives. Zero infraestrutura.
-│   │   ├── Domain/                       ← entidades e tipos de valor
-│   │   │   ├── Element/                    BuildingElement, Group, Context (ADR-08, ADR-11)
-│   │   │   ├── Surface/                    Envelope, Facade, Face (ADR-04)
-│   │   │   └── Voxel/                      VoxelGrid3D, VoxelCoord, VoxelState
-│   │   ├── Pipeline/                     ← contratos e tipos de cada estágio do pipeline
-│   │   │   ├── Loading/                    ModelLoadResult, DefaultElementFilter (ADR-05)
-│   │   │   ├── Detection/                  IDetectionStrategy, IFaceExtractor, DetectionResult, ElementClassification
-│   │   │   └── Evaluation/                 DetectionCounts, GroundTruthRecord, EvaluationResult,
-│   │   │                                   MetricsCalculator, GroundTruthCsvReader
-│   │   └── Extensions/                   ← extension methods sobre tipos de Core e g4
-│   │                                       BuildingElementExtensions  → IEnumerable<BuildingElement>.BoundingBox()
-│   │                                       Vector3dExtensions         → IEnumerable<Vector3d>.FitPlane(), Vector3d.ToSphere()
-│   │                                       DMesh3Extensions           → IEnumerable<DMesh3>.Merge(), DMesh3.ExtractTriangles()
-│   │                                       Plane3dExtensions          → Plane3d.ToQuadMesh()
-│   │                                       VoxelGrid3DExtensions      → VoxelGrid3D.CubesAt()
-│   │                                       AxisAlignedBox3dExtensions → AxisAlignedBox3d.ToCube(), .ToWireframe()
-│   │   [deps: geometry4Sharp]
-│   │
-│   ├── Engine/                           ← estratégias de detecção + visualização debug
-│   │   ├── Strategies/                   ← PcaFaceExtractor, VoxelFloodFillStrategy (ADR-14)
-│   │   └── Visualization/                ← GeometryDebug ([Conditional("DEBUG")]), DebugSession,
-│   │                                       GltfSerializer, DebugShape, IfcTypePalette,
-│   │                                       SidecarWriter, AtomicFile (ADR-17)
-│   │   [deps: Core, SharpGLTF.Toolkit; DebugServer build-ordering only]
-│   │
-│   ├── Ifc/                              ← integração xBIM
-│   │   ├── Loading/                      ← XbimModelLoader, IfcLoadException, IfcGeometryException
-│   │   ├── Resolver/                     ← XbimIfcProductResolver
-│   │   └── Evaluation/                   ← GroundTruthGenerator, EvaluationPipeline
-│   │   [deps: Core, Xbim.Essentials, Xbim.Geometry, Xbim.ModelGeometry.Scene]
-│   │
-│   ├── DebugServer/                      ← EXE separado — viewer HTTP fora do processo (ADR-17)
-│   │   └── Program.cs                    ← HttpListener loopback :5173, watchdog parent-PID
-│   │   [deps: nenhuma — spawned via Process.Start por Engine.Visualization.DebugSession]
-│   │
-│   └── Cli/                              ← entry point, output writers
-│       └── Program.cs                    ← parse args → EvaluationPipeline.EvaluateDetection() → print
-│       [deps: Core, Ifc, Engine, System.CommandLine, Microsoft.Extensions.Logging]
-│
-├── tests/
-│   └── Tests/                            ← xUnit + FluentAssertions (66 testes: 64 unit + 2 integration)
-│       ├── Core/                         ← Element, Loading, Surface, Detection, Domain/Voxel (unit)
-│       ├── Engine/                       ← Strategies/ (unit em meshes sintéticos)
-│       ├── Ifc/                          ← XbimModelLoader (integration vs duplex.ifc)
-│       ├── Integration/                  ← EvaluationPipelineTests (golden + visual GLB on failure)
-│       └── Fixtures/                     ← IfcModelFixture (xUnit IClassFixture compartilhando duplex.ifc)
-│
-├── data/
-│   ├── models/                           ← arquivos IFC de teste
-│   ├── results/                          ← outputs JSON gerados pela CLI
-│   ├── debug/                            ← glTF/PLY gerados pela flag --debug
-│   └── ground-truth/                     ← rotulação manual por especialistas (CSV)
-│
-├── IfcEnvelopeMapper.slnx
-└── README.md
-```
-
-### Por que 5 projetos?
-
-`Core` concentra todo o conteúdo conceitual do trabalho. `Domain/` agrupa as entidades e tipos de valor que um leitor AEC reconhece (paredes, lajes, fachadas, voxels). `Pipeline/` agrupa os contratos e tipos de cada estágio do pipeline (carregamento, detecção, avaliação). `Extensions/` traduz as primitivas matemáticas em chamadas idiomáticas (`elements.BoundingBox()`, `mesh.ExtractTriangles(ids)`, `points.FitPlane()`, `box.ToWireframe()` etc.) — substitui as antigas classes utilitárias estáticas (GeometricPrimitives, MeshOperations, GeometricOperations) por extension methods que leem como verbos sobre os tipos. Dependência única: `geometry4Sharp` (tipos `DMesh3`, `Vector3d`).
-
-`Engine` fica restrito ao que tem dependência pesada: as estratégias de detecção (que importam `Core`) e a infraestrutura de visualização debug (`GeometryDebug` + `GltfSerializer` + `DebugSession` + `SidecarWriter` + `IfcTypePalette` + `AtomicFile`). A separação reflete o critério "se não tem dependência pesada, vai pro Core".
-
-`Ifc` isola tudo que toca xBIM. `XbimModelLoader` produz `ModelLoadResult` (tipos de Core); `EvaluationPipeline` orquestra o caminho completo (load → ground truth → detect → metrics) sem expor xBIM aos consumidores. Trocar a biblioteca de leitura IFC no futuro toca apenas este projeto.
-
-`DebugServer` é um EXE standalone — não referência gerenciada — porque o debugger .NET com política `Suspend: All` congela toda a thread do processo no breakpoint, incluindo qualquer servidor HTTP in-process. Rodar o viewer em outro processo do SO mantém o GLB respondendo enquanto o algoritmo está pausado em F10 (ADR-17).
-
-`Cli` é um wrapper fino: parsing de argumentos, chamada de `EvaluationPipeline`, formatação de saída. ~80 linhas. Sem lógica de domínio, sem orquestração de pipeline — tudo isso vive em `Ifc/Evaluation/EvaluationPipeline` ou nas estratégias em `Engine`.
+| Projeto | Responsabilidade | Dependências |
+|---|---|---|
+| `Core` | Pure: primitives + capability interfaces + extensions. Domain/Interfaces (`IIfcEntity`, `IBoxEntity`, `IMeshEntity`), Domain/Voxel (`VoxelGrid3D`), Domain/Surface (`Envelope`, `Facade`, `Face`), Extensions (math idiomático sobre g4), Diagnostics (`AppLog`). | `geometry4Sharp`, `Microsoft.Extensions.Logging.Abstractions` |
+| `Ifc` | Integração xBIM. `Element`, `Storey`, `Space` em `Ifc/Domain/`; `XbimModelLoader` em `Ifc/Loading/` produz `ModelLoadResult : IDisposable` carregando geometria lazy via closures sobre `IfcStore`. `XbimIfcProductResolver` em `Ifc/Resolver/`. Trocar de lib IFC toca só este projeto. | `Core`, `Xbim.Essentials`, `Xbim.Geometry`, `Xbim.ModelGeometry.Scene` |
+| `Engine` | Pipeline + estratégias + debug. Pipeline em `Engine/Pipeline/{Detection, Evaluation, JsonReport, BcfReport}`. Estratégias (`VoxelFloodFillStrategy`, `RayCastingStrategy`, `PcaFaceExtractor`) em `Engine/Pipeline/Detection/`. Debug instrumentation em `Engine/Debug/{Api, Serialization}` (ADR-17). | `Core`, `Ifc`, `SharpGLTF.Toolkit` |
+| `DebugServer` | EXE standalone (não referência gerenciada). Roda viewer HTTP em processo OS separado para sobreviver ao freeze do debugger `.NET` em breakpoints com `Suspend: All` (ADR-17). | nenhuma |
+| `Cli` | Entry point fino. `Program.cs` faz bootstrap (logger, AppLog, XbimServices) e wiring do `RootCommand`; comandos vivem em `Cli/Commands/` (`DetectCommand`, e P4.2 adiciona `InspectCommand`). | `Core`, `Ifc`, `Engine`, `System.CommandLine`, `Microsoft.Extensions.Logging` |
+| `tests/Tests` | xUnit + FluentAssertions. `IfcTestBase` na raiz centraliza carga + cache de `ModelLoadResult` por (test class, IFC path) e helpers de path (`FindModel`, `GroundTruthPath`, `ResultsPath`). | `Core`, `Ifc`, `Cli`, `Engine` |
 
 ### Diagrama de dependências (sem ciclo)
 
 ```
-       Core (leaf — domínio + pipeline + extensions)
+       Core (pure — primitives, capability interfaces, extensions)
        ↑       ↑
        |       |
-     Ifc     Engine (estratégias + visualização)
-       ↑       ↑
-       └───┬───┘
-           |
-          Cli
+     Ifc       |
+       ↑       |
+       |       |
+     Engine ───┘  (pipeline, strategies, debug; Engine → Ifc)
+       ↑
+       |
+      Cli  (Cli → Engine + Ifc + Core)
 
-DebugServer é spawned via Process.Start por Engine.Visualization.DebugSession.
+DebugServer é spawned via Process.Start por Engine.Debug.Api.DebugSession.
 Não é referência gerenciada — fica fora do grafo de deps.
 ```
 
-`Tests` depende de `Core + Ifc + Cli + Engine`. Debug geométrico é acessado via `GeometryDebug.Mesh(...)` etc. — `[Conditional("DEBUG")]` em cada método público garante eliminação total das chamadas em Release (zero IL nos call sites).
+`Tests` depende de `Core + Ifc + Cli + Engine`. Debug geométrico é acessado via `GeometryDebug.Element(...)`, `GeometryDebug.Voxels(...)` etc. — `[Conditional("DEBUG")]` em cada método público garante eliminação total das chamadas em Release (zero IL nos call sites).
 
-> **Pendente neste projeto** (não implementado ainda): `RayCastingStrategy` (baseline ADR-14), `DbscanFacadeGrouper` (Stage 2 — Fase P5 set/2026), e os 10 geradores de LoD do framework Biljecki/van der Vaart (ADR-15, Fases P4–P6, ago–dez/2026). Quando criados, vivem em `Engine/Strategies/` (e `Engine/Grouping/` ou `Engine/Lod/` se justificar nova subpasta) — sem novo projeto.
+`tools/debug-viewer/` (HTML + three.js local, ADR-16/17) e `data/{models,results,debug,ground-truth}/` ficam fora de `src/`.
+
+> **Pendente neste projeto** (não implementado ainda): `IfcInspector` + `XbimMetadataLoader` (Fase P4.2, mai/2026), `DbscanFacadeGrouper` (Stage 2 — Fase P4.3, jun–jul/2026), `HierarchicalVoxelFloodFillStrategy` (Fase P5, jul–set/2026, contribuição original), e os 10 geradores de LoD do framework Biljecki/van der Vaart (ADR-15, Fase P6, set–nov/2026). Quando criados, vivem em `Ifc/Inspection/`, `Engine/Pipeline/Grouping/`, `Engine/Pipeline/Lod/` (sem novo projeto).
 
 ---
 
@@ -278,9 +243,9 @@ IFC Model
     │
     ▼
 [XbimModelLoader (sealed) — Load(path) → ModelLoadResult]
-    │  IReadOnlyList<BuildingElement>
+    │  IReadOnlyList<Element>
     ▼
-[Stage 1 — IDetectionStrategy.Detect()]
+[Stage 1 — IEnvelopeDetector.Detect()]
     │  DetectionResult (Envelope + ElementClassification[])
     │
     │  Implementadas (ADR-14 — superseda ADR-12 parcialmente):
@@ -292,7 +257,7 @@ IFC Model
     │    → FillGaps pós-processamento (robustez em meshes imperfeitas)
     │    → configurável (--voxel-size)
     │
-    │  Baseline de comparação: RayCastingStrategy (Ying 2022) — exclusivo P4
+    │  Baseline de comparação: RayCastingStrategy (Ying 2022) — entregue P3
     │    → BVH global (g4.DMeshAABBTree3)
     │    → raio por face na direção da normal (com jitter)
     │    → face exposta = raio escapa sem interceptar outro elemento
@@ -325,21 +290,30 @@ Facade[]
 
 ### Orquestração na CLI (sem FacadeDetector)
 
-```csharp
-// DetectCommand.cs — composition root
-// GeometryDebug (#if DEBUG) está sempre disponível sem configuração (ADR-17)
+**Estado atual (P3 entregue):**
 
-var model    = loader.Load(modelPath);                        // XbimModelLoader → ModelLoadResult
-var result   = strategy.Detect(model.Elements);               // IDetectionStrategy → DetectionResult
-var facades  = grouper.Group(result.Envelope);                // IFacadeGrouper (planejado P5) → Facade[]
-var lodOutputs = options.Lods                                 // ILodGenerator[] (ADR-15)
-                    .Select(id => registry.Resolve(id).Generate(result, facades))
-                    .ToList();
-var report   = ReportBuilder.Build(result, facades, lodOutputs, model.Groups, runMeta);
-writer.WriteReports(report, outputPath);                      // 1 JSON por LoD + reports/
+```csharp
+// Cli/Commands/DetectCommand.cs — wired by Program.cs
+using var model = loader.Load(modelPath);     // XbimModelLoader → ModelLoadResult (IDisposable)
+var result = strategy.Detect(model.Elements); // IEnvelopeDetector → DetectionResult
+if (output is not null)
+    writer.Write(report, output);             // .json → JsonReportWriter; .bcf → BcfWriter
 ```
 
-**Instrumentação de debug (ADR-17).** Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente — sem configuração, sem interfaces. Em Release builds, `#if DEBUG` elimina todas as chamadas pelo pré-processador. Em Debug builds, `Flush()` serializa para `%TEMP%\ifc-debug-output.gltf` (implementação SharpGLTF na Fase 2). Developer inspeciona com breakpoints no IDE.
+**Estado alvo (após P4.3 + P6):**
+
+```csharp
+using var model = loader.Load(modelPath);                           // ModelLoadResult (IDisposable)
+var result      = strategy.Detect(model.Elements);                  // DetectionResult
+var facades     = grouper.Group(result.Envelope);                   // Facade[] — após P4.3
+var lodOutputs  = options.Lods                                      // ILodGenerator[] — após P6
+                    .Select(id => registry.Resolve(id).Generate(result, facades))
+                    .ToList();
+var report = ReportBuilder.Build(result, facades, lodOutputs, model.Elements, runMeta);
+writer.WriteReports(report, outputPath);                            // 1 arquivo por LoD
+```
+
+**Instrumentação de debug (ADR-17).** Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente — sem configuração, sem interfaces. Em Release builds, `[Conditional("DEBUG")]` elimina as chamadas no call site. Em Debug builds, cada chamada serializa via atomic write para `C:\temp\ifc-debug-output.glb`; `DebugServer` (processo OS separado, ADR-17) serve o GLB ao browser em `:5173`. Developer inspeciona com breakpoints no IDE.
 
 **Por que sem `FacadeDetector`?** A CLI é a composition root e orquestra diretamente os dois estágios. Isto permite:
 - Trocar strategy e grouper de forma independente
@@ -347,6 +321,34 @@ writer.WriteReports(report, outputPath);                      // 1 JSON por LoD 
 - Evitar classe coordenadora que apenas delega
 
 **Por que DBSCAN + QuikGraph?** DBSCAN agrupa por orientação de normal mas não distingue duas superfícies desconexas com mesma orientação (ex: fachada norte frontal e fachada norte do poço de luz). QuikGraph resolve isso: dentro de cada cluster DBSCAN, o grafo de adjacência espacial separa superfícies fisicamente desconexas. Cada componente conectado é uma Facade distinta.
+
+### Inspetor de modelos (auxiliar — P4.2)
+
+Fluxo paralelo, **fora do pipeline de detecção**. Suporta a fase de seleção de modelos para os experimentos: dado um diretório de IFCs candidatos, sumarizar contagens por tipo, schema, ferramenta de autoria, e flags de candidatos a casos adversariais (átrios, pátios abertos).
+
+```
+IFC file(s)
+    │
+    ▼
+[XbimMetadataLoader] (rápido, sem Xbim3DModelContext)  ─┐
+    │  ModelMetadata + element counts + storey count    │  Fase A
+    │                                                   │
+[XbimModelLoader.Load]  (full, com geometria lazy)     ─┘──┬──┘
+    │  ModelLoadResult (Elements, Storeys, Metadata) — IDisposable
+    ▼
+[IfcInspector]
+    │  Fase B: SpaceAnalyzer (top-N spaces por volume, candidatos a átrio)
+    │  Fase D: RoofAnalyzer (count + materiais → cobertura vítrea)
+    │  Fase E: FootprintAnalyzer (cavidades 2D → courtyards abertos)
+    ▼
+IfcInspection (record)
+    │
+    ├─ console (resumo legível)
+    ├─ JSON por modelo (`inspect`)
+    └─ CSV agregado (`inspect-all`, uma linha por arquivo)
+```
+
+O Inspector **não roda detecção**, **não produz `DetectionResult`**, **não compete com `IEnvelopeDetector`**. Output alimenta a tabela "Modelos Selecionados" em `00_Manuais_e_Referencias/datasets-ifc.md`.
 
 ---
 
@@ -359,195 +361,46 @@ writer.WriteReports(report, outputPath);                      // 1 JSON por LoD 
 
 ### Estágio 0 — Carregamento e Triangulação
 
-```
-FUNÇÃO Load(ifcPath) → ModelLoadResult
-    // Ref: xBIM Toolkit — Xbim3DModelContext (Lockley et al.)
-    // ADR-05: filtro injetado por construtor (DefaultElementFilter; interface removida 2026-04-23)
-    // ADR-09: agregação IFC de building elements tem 2 níveis fixos
-    // ADR-11: resultado separa átomos (Elements) de agregadores (Groups)
+**Implementação:** `src/Ifc/Loading/XbimModelLoader.cs`
 
-    model ← IfcStore.Open(ifcPath)
-    context ← Xbim3DModelContext(model); context.MaxThreads = 1; context.CreateContext()
-    // MaxThreads=1 evita AccessViolationException em OCCT (thread-unsafe teardown)
+1. `IfcStore.Open(path)` → STEP parsing (mantém o store **aberto** pela vida do `ModelLoadResult`)
+2. `Xbim3DModelContext.CreateContext()` (`MaxThreads=1`, workaround OCCT)
+3. Para cada `IIfcElement` filtrado por `ElementFilter` (ADR-05):
+   - **Standalone** (sem filhos): vira `Element` com `_lazyMesh` e `_lazyBbox` apontando ao `Xbim3DModelContext`
+   - **Composite** (IfcCurtainWall/IfcRoof, ADR-09): vira `Element` com `Children` populado pelos filhos; o `_lazyMesh` do composite mescla os meshes filhos via `DMesh3Extensions.Merge` no primeiro acesso
+4. Retorna `ModelLoadResult(Elements, Storeys, Metadata) : IDisposable` — disposing fecha o `IfcStore`
 
-    elementos ← []    // átomos classificáveis
-    grupos   ← []     // agregadores organizacionais
+**Exemplo concreto.** Uma cortina de vidro em canto de prédio com 4 painéis voltados para norte e 3 para leste produz **1 `Element` IfcCurtainWall** com `Children = [painel1, painel2, ..., painel7]` e `_lazyMesh` mesclado dos filhos. Cada filho é um `Element` com `GroupGlobalId = "curtainWall-1"`. O `DbscanFacadeGrouper` (P4.3) consome `model.Elements` (todos os Elements top-level — composites + atômicos) e classifica 4 painéis em Facade-Norte, 3 em Facade-Leste; um elemento de canto pode aparecer em 2+ fachadas (muitos-para-muitos).
 
-    PARA CADA ifcElem EM model.Instances.OfType<IIfcBuildingElement>():
-        SE NOT filter.Include(ifcElem.GetType().Name): CONTINUE
-
-        ctx ← ExtrairContext(ifcElem)    // (SiteId, BuildingId, StoreyId)
-        children ← ifcElem.IsDecomposedBy
-                         .SelectMany(r → r.RelatedObjects.OfType<IIfcBuildingElement>())
-                         .Where(c → filter.Include(c.GetType().Name))
-                         .ToList()
-
-        SE children.Count == 0:
-            // Átomo standalone — entra em Elements apenas se tem geometria.
-            mesh ← ExtrairMesh(ifcElem, context)
-            SE mesh.TriangleCount > 0:
-                elementos.Add(new BuildingElement {
-                    GlobalId = ifcElem.GlobalId,
-                    IfcType  = ifcElem.GetType().Name,
-                    Mesh     = mesh,
-                    Context  = ctx
-                })
-
-        SENÃO:
-            // Agregador (IfcCurtainWall, IfcStair, …).
-            Debug.Assert(children.All(c → !c.IsDecomposedBy.Any()),
-                "ADR-09: agregação de 3+ níveis não esperada")
-
-            groupId ← ifcElem.GlobalId
-            groupElements ← []
-
-            PARA CADA child EM children:
-                meshChild ← ExtrairMesh(child, context)
-                SE meshChild.TriangleCount > 0:
-                    elem ← new BuildingElement {
-                        GlobalId       = child.GlobalId,
-                        IfcType        = child.GetType().Name,
-                        Mesh           = meshChild,
-                        Context        = ExtrairContext(child),
-                        GroupGlobalId  = groupId
-                    }
-                    elementos.Add(elem)
-                    groupElements.Add(elem)
-                SENÃO:
-                    // Child sem geometria (ex: IfcCurtainWallPanel vazio) é descartado.
-                    logger.Warning("Element {GlobalId} ({Type}) skipped: empty mesh",
-                                   child.GlobalId, child.GetType().Name)
-
-            // Agregador pode ou não ter geometria própria.
-            ownMesh ← ExtrairMesh(ifcElem, context)
-            grupos.Add(new BuildingElementGroup {
-                GlobalId = groupId,
-                IfcType  = ifcElem.GetType().Name,
-                Context  = ctx,
-                OwnMesh  = ownMesh.TriangleCount > 0 ? ownMesh : null,
-                Elements = groupElements
-            })
-
-    RETORNAR new ModelLoadResult(elementos, grupos)
-```
-
-**Exemplo concreto.** Uma cortina de vidro em canto de prédio com 4 painéis voltados para norte e 3 para leste produz:
-- `Elements`: 7 `BuildingElement`s (um por painel) + N mullions, todos com `GroupGlobalId = "curtainWall-1"`
-- `Groups`: 1 `BuildingElementGroup` `"curtainWall-1"` (IfcCurtainWall, `OwnMesh = null`, `Elements` referenciando os 7+N)
-
-O `DbscanFacadeGrouper` consome só `model.Elements` e classifica 4 painéis em Facade-Norte, 3 em Facade-Leste. O relatório JSON itera `model.Groups` para produzir `"aggregates": [{"globalId": "curtainWall-1", "participatingFacades": ["facade-N", "facade-E"]}]`.
-
-### Estágio 1 — Detecção de Exterior (IDetectionStrategy)
+### Estágio 1 — Detecção de Exterior (IEnvelopeDetector)
 
 O método implementa Voxel + Flood-Fill como estratégia primária (robustez em IFC real, referência canônica van der Vaart 2022) e Ray Casting como baseline de comparação (Ying 2022, caracteriza tradeoff precisão-vs-robustez no capítulo de Resultados). Normais foi descartada — ver ADR-14 que superseda ADR-12 parcialmente.
 
 #### Estratégia 1A: Voxel + Flood-Fill (primária — ADR-14)
 
-Arquitetura em 5 passos, alinhada ao IFC_BuildingEnvExtractor (`inc/voxelGrid.h`): cascata 4-testes para rasterização, 3 fases de flood-fill (`growExterior`/`growInterior`/`growVoid`), `FillGaps` pós-processamento para robustez em meshes com gaps/auto-interseções.
+**Implementação:** `src/Engine/Pipeline/Detection/VoxelFloodFillStrategy.cs`
+**Referências canônicas:** van der Vaart (2022) — IFC_BuildingEnvExtractor; Liu et al. (2021) — ExteriorTag; Voxelization Toolkit (`fill_gaps.h`); Akenine-Möller (1997) — SAT triângulo-AABB
 
-```
-FUNÇÃO VoxelFloodFillDetect(elementos, tamanhoVoxel) → DetectionResult
-    // Ref: van der Vaart (2022) — IFC_BuildingEnvExtractor
-    // Ref: Liu et al. (2021) — ExteriorTag (anotação voxel em IFC)
-    // Ref: Voxelization Toolkit (fill_gaps.h) — pós-processamento
-    // SAT triângulo-AABB próprio (Akenine-Möller 1997) — g4.IntrTriangle3Box3 ausente em geometry4sharp
-
-    // PASSO 1: Discretizar modelo em grade 3D
-    bbox ← BoundingBoxGlobal(elementos) expandida por 2 * tamanhoVoxel
-    grid ← VoxelGrid3D(bbox, tamanhoVoxel)
-
-    // PASSO 2: Rasterizar — cascata 4-testes de interseção (van der Vaart 2022)
-    //   Ordem barato→caro; bails out no primeiro hit
-    PARA CADA elem EM elementos:
-        PARA CADA tri EM elem.Mesh.Triangulos:
-            voxelsCandidatos ← grid.VoxelsInBbox(tri.Bbox)
-            PARA CADA v EM voxelsCandidatos:
-                // (1) centro do voxel cai dentro do shape do produto?
-                // (2) vértice do triângulo cai no voxel?
-                // (3) aresta do triângulo cruza face do voxel?
-                // (4) aresta do voxel cruza face do triângulo?
-                SE TriangleIntersectsAabb(tri.v0, tri.v1, tri.v2, v.Box):
-                    grid[v].Ocupado ← VERDADEIRO
-                    grid[v].Elementos.Add(elem.GlobalId)   // provenance (ADR-04)
-
-    // PASSO 3: Flood-fill em 3 fases (van der Vaart 2022)
-    //   Fase A — growExterior: semente em canto do grid (garantido exterior)
-    grid.GrowExterior(semente = canto, conectividade = 26)
-
-    //   Fase B — growInterior: vazios não alcançados por Exterior,
-    //   adjacentes a Ocupados → marcados como interior do edifício
-    grid.GrowInterior()
-
-    //   Fase C — growVoid: agrupa voxels interiores em cômodos (roomNum)
-    //   permite distinguir paredes-meia de fachadas no reporting
-    grid.GrowVoid()
-
-    // PASSO 4: fill_gaps — fecha buracos de 1 voxel
-    //   Ref: Voxelization Toolkit fill_gaps.h
-    //   Robustez contra meshes com gaps/auto-interseções
-    grid.FillGaps()
-
-    // PASSO 5: Classificação — elemento com ≥1 face adjacente a voxel Exterior = exterior
-    PARA CADA elem EM elementos:
-        voxelsDoElemento ← grid.VoxelsOcupadosPor(elem.GlobalId)
-        temFaceExterior ← FALSO
-        PARA CADA v EM voxelsDoElemento:
-            SE algum Vizinho26(v) tem Exterior == VERDADEIRO:
-                temFaceExterior ← VERDADEIRO
-                BREAK
-
-        // Faces atômicas: triângulos cuja normal aponta para voxel Exterior,
-        //   agrupados coplanarmente via g4.OrthogonalPlaneFit3 (ADR-13)
-        facesAgrupadas ← ExtrairFacesVoltadasParaExterior(elem, grid)
-        // Cada Face: {Element, TriangleIds, FittedPlane, Normal, Area, Centroid}
-        GeometryDebug.Triangles(elem.Mesh, facesAgrupadas.SelectMany(f => f.TriangleIds))  // ADR-17
-
-    RETORNAR DetectionResult(envelope, classificacoes)
-```
+1. Bbox global expandida por `2 × voxelSize` + `VoxelGrid3D`
+2. Rasterização: cascata 4-testes SAT triângulo-AABB (implementação própria — `g4.IntrTriangle3Box3` ausente). Cada voxel ocupado guarda lista de `GlobalId`s (provenance — ADR-04)
+3. Flood-fill 3 fases: `GrowExterior` (semente em canto, conectividade 26) → `GrowInterior` (vazios adjacentes a ocupados) → `GrowVoid` (room labels)
+4. `FillGaps` — fecha buracos de 1 voxel; robustez contra meshes com gaps/auto-interseções
+5. Classificação: elemento exterior se ≥1 voxel ocupado por ele tem vizinho-26 marcado Exterior
+6. Faces extraídas via `PcaFaceExtractor` (`g4.OrthogonalPlaneFit3` — ADR-13); cada `Face: {Element, TriangleIds, FittedPlane, Normal, Area, Centroid}`. `GeometryDebug.Triangles` instrumenta a saída (ADR-17)
 
 #### Estratégia 1B: Ray Casting (baseline de comparação — ADR-14)
 
-Propósito: comparação algorítmica no capítulo de Resultados — caracteriza tradeoff precisão face-por-face (raycast) vs robustez volumétrica (voxel). Implementada exclusivamente em P4; não faz parte do pipeline de produção.
+**Implementação:** `src/Engine/Pipeline/Detection/RayCastingStrategy.cs`
+**Referência canônica:** Ying et al. (2022) — two-stage recursive ray tracing
 
-```
-FUNÇÃO RayCastDetect(elementos, numRaios, razaoHit) → DetectionResult
-    // Ref: Ying et al. (2022) — two-stage recursive ray tracing
-    // Ref: geometry4Sharp — DMeshAABBTree3 (BVH para ray-triangle intersection)
+1. Mesh global mesclada + BVH (`g4.DMeshAABBTree3`)
+2. Mapa triângulo→elemento (ownership) para distinguir auto-hits de hits externos
+3. Por triângulo: `numRaios` raios partindo de `centroid + ε·normal` na direção da normal, com jitter de ±5°
+4. Raio "escapa" se não intercepta ou hit pertence ao próprio elemento
+5. Triângulo é exterior se `escapes / numRaios ≥ hitRatio`
+6. Elemento é exterior se ≥1 triângulo exterior
 
-    // Construir BVH global com todos os triângulos do modelo
-    meshGlobal ← MergeMeshes(elementos.Select(e → e.Mesh))
-    bvh ← DMeshAABBTree3(meshGlobal)
-
-    classificacoes ← []
-    facesExteriores ← []
-
-    PARA CADA elem EM elementos:
-        PARA CADA tri EM elem.Mesh.Triangulos:
-            centro ← tri.Centroide
-            normal ← tri.Normal
-            hitsExterior ← 0
-
-            PARA i DE 1 ATÉ numRaios:
-                // Emitir raio do centro na direção da normal (com jitter)
-                direcao ← PerturbaDirecao(normal, jitter=5°)
-                raio ← Ray3d(centro + normal * EPSILON, direcao)
-
-                // Se o raio NÃO intercepta nenhum outro elemento → face exterior
-                hit ← bvh.FindNearestHitTriangle(raio)
-                SE hit NÃO EXISTE OU hit.Distancia > DISTANCIA_MAXIMA:
-                    hitsExterior += 1
-
-            razao ← hitsExterior / numRaios
-            SE razao >= razaoHit:
-                MARCAR tri como exterior
-
-        facesAgrupadas ← AgruparPorPlanoAjustado(triangulosExteriores, elem)
-        // ... agrupamento coplanar via g4.OrthogonalPlaneFit3 (ADR-13) ...
-
-    RETORNAR DetectionResult(envelope, classificacoes)
-```
-
-### Estágio 2 — Agrupamento em Fachadas (IFacadeGrouper)
+### Estágio 2 — Agrupamento em Fachadas via DBSCAN (P4.3, não implementado)
 
 ```
 FUNÇÃO DbscanGroup(envelope) → Facade[]
@@ -566,7 +419,7 @@ FUNÇÃO DbscanGroup(envelope) → Facade[]
     //   Cada face gera um ponto na esfera unitária: sua normal normalizada
     //   Opção de pré-filtro (ADR-13): g4.NormalHistogram com SphericalFibonacciPointSet
     //   discretiza a esfera em N bins; clustering subsequente opera só em bins
-    //   com contagem significativa. Avaliar em P5 se o ruído justificar.
+    //   com contagem significativa. Avaliar em P4.3 se o ruído justificar.
     pontos ← faces.Select(f → f.Normal.Normalizado)
 
     // PASSO 2.2: DBSCAN com distância angular
@@ -610,7 +463,7 @@ FUNÇÃO DbscanGroup(envelope) → Facade[]
                 dominantNormal: normalDominante,
                 azimuth: azimute
             )
-            // NOTA: fachada.Elements retorna os BuildingElements que
+            // NOTA: fachada.Elements retorna os Elements que
             // possuem ≥1 Face nesta região. Um elemento de canto aparecerá
             // em 2+ fachadas — comportamento correto (muitos-para-muitos).
             fachadas.Add(fachada)
@@ -620,63 +473,19 @@ FUNÇÃO DbscanGroup(envelope) → Facade[]
 
 ### Estágio 3 — Relatório e Métricas
 
-```
-FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
-    report ← {
-        run: { model, strategy, grouper, timestamp, parameters },
-        summary: { totalElements, exteriorElements, facadeCount },
-        classifications: [],
-        facades: []
-    }
+**Implementação:** `src/Engine/Pipeline/JsonReport/{ReportBuilder, JsonReportWriter}.cs`; `src/Engine/Pipeline/BcfReport/{BcfBuilder, BcfWriter}.cs`. Métricas (TP/FP/FN/TN, Precision, Recall) em `src/Engine/Pipeline/Evaluation/{MetricsCalculator, DetectionCounts}.cs`; tipos de DTO ficam em `Evaluation/Types/`.
+**Schema atual:** v1 (sem `facades`/`aggregates`); v2 alvo após P4.3, v3 alvo após P6.4 (LoD 3.2). Ver `## Schema JSON`.
 
-    // Classificações por elemento
-    PARA CADA c EM result.Classifications:
-        entry ← {
-            globalId: c.Element.GlobalId,
-            ifcType: c.Element.IfcType,
-            computed: { isExterior: c.IsExterior },
-            facadeIds: facades.Where(f → f.Elements.Contains(c.Element))
-                             .Select(f → f.Id)   // pode ser múltiplos!
-        }
-        // Se IsExternal declarado disponível:
-        entry.declared ← { isExternal: LerIsExternal(c.Element) }
-        entry.agreement ← entry.computed.isExterior == entry.declared.isExternal
-        report.classifications.Add(entry)
-
-    // Fachadas com métricas
-    PARA CADA f EM facades:
-        wallArea ← f.Faces.Where(tipo ∈ {"IfcWall", "IfcCurtainWall"}).Sum(Area)
-        windowArea ← f.Faces.Where(tipo == "IfcWindow").Sum(Area)
-        entry ← {
-            id: f.Id,
-            dominantNormal: f.DominantNormal,
-            azimuthDegrees: f.AzimuthDegrees,
-            faceCount: f.Faces.Count,
-            participantCount: f.Elements.Count(),
-            metrics: { totalArea, wallArea, windowArea, wwr: windowArea/wallArea }
-        }
-        report.facades.Add(entry)
-
-    // Se ground truth fornecido, calcular métricas
-    SE groundTruth EXISTE:
-        TP ← elementos classificados exterior E rotulados exterior
-        FP ← elementos classificados exterior MAS rotulados interior
-        FN ← elementos classificados interior MAS rotulados exterior
-        precisao ← TP / (TP + FP)
-        recall ← TP / (TP + FN)
-        f1 ← 2 * precisao * recall / (precisao + recall)
-        report.summary.precision ← precisao
-        report.summary.recall ← recall
-        report.summary.f1 ← f1
-
-    RETORNAR report
-```
+1. Classificação por elemento: `globalId`, `ifcType`, `isExterior`
+2. Determinismo: `OrderBy(c => c.Element.GlobalId, StringComparer.Ordinal)` antes de serializar (saída byte-estável)
+3. Quando `--ground-truth` fornecido (P9): TP/FP/FN/TN + Precision/Recall por contagem (ADR-12: F1/Kappa intencionalmente fora — não aparecem nas referências canônicas: van der Vaart 2022 usa contagens manuais, Ying 2022 usa apenas Precision/Recall)
+4. BCF 2.1: um tópico por elemento exterior, viewpoint apontando para o centroide via `Components/Selection/Component@IfcGuid`
 
 ---
 
 ## Tabela Comparativa das Estratégias de Detecção
 
-> Escopo desta tabela: **Voxelização Uniforme (ablation baseline)** × ***Ray Casting* (baseline externo)**. Cobre as Fases 3–7. A terceira estratégia — *Hierarchical Voxel Flood-Fill* (contribuição original) — é introduzida na Fase 8; a comparação final com 3 estratégias aparece no capítulo de Resultados da dissertação e é resumida em §Comportamento em casos geométricos chave.
+> Escopo desta tabela: **Voxelização Uniforme (ablation baseline)** × ***Ray Casting* (baseline externo)**. Cobre as Fases 2–4 (período em que estas duas estratégias coexistem sem HVFF). A terceira estratégia — *Hierarchical Voxel Flood-Fill* (contribuição original) — é introduzida na Fase 5; a comparação final com 3 estratégias aparece no capítulo de Resultados da dissertação e é resumida em §Comportamento em casos geométricos chave.
 
 | Critério | Voxel + Flood-Fill (primária) | Ray Casting (baseline) |
 |---|---|---|
@@ -694,7 +503,7 @@ FUNÇÃO BuildReport(result, facades, groundTruth?) → JSON
 | **Rastreabilidade** | Preservada via `grid[v].Elementos` (padrão do EnvExtractor) | Preservada nativamente — raio por face do elemento |
 | **Validação na literatura** | Forte (van der Vaart: casca multi-LoD; projeto CHEK €5M) | Forte (Ying: 99%+ em ray tracing recursivo) |
 
-**Nota sobre a decisão (ADR-14, revisada 2026-04-24).** Esta tabela cobre apenas as Fases 3–7. A escolha de *voxel flood-fill* uniforme como baseline de produção se apoia na robustez em IFC real — modelos com *gaps*, auto-interseções e topologia imperfeita são a norma, não a exceção (documentado em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). *Ray Casting* entra como baseline de comparação, caracterizando o *tradeoff* precisão × robustez. A `NormalsStrategy` (presente em ADR-12) permanece descartada: baseline trivial não contribui comparação científica relevante. Na Fase 8, a voxelização uniforme passa a ser comparada com a variante hierárquica como contribuição original do trabalho.
+**Nota sobre a decisão (ADR-14, revisada 2026-04-24).** Esta tabela cobre apenas as Fases 3–4. A escolha de *voxel flood-fill* uniforme como baseline de produção se apoia na robustez em IFC real — modelos com *gaps*, auto-interseções e topologia imperfeita são a norma, não a exceção (documentado em `Ferramentas/BuildingEnvExtractor/IFC_BuildingEnvExtractor_Evaluation.md` §5). *Ray Casting* entra como baseline de comparação, caracterizando o *tradeoff* precisão × robustez. A `NormalsStrategy` (presente em ADR-12) permanece descartada: baseline trivial não contribui comparação científica relevante. Na Fase 5 (HVFF), a voxelização uniforme passa a ser comparada com a variante hierárquica como contribuição original do trabalho.
 
 ---
 
@@ -778,7 +587,7 @@ Duto vertical de <500mm para instalações hidráulicas ou elétricas, passando 
 
 **Voxel uniforme (0.5m)**: paredes internas do *shaft* são erroneamente classificadas como exterior porque o *flood-fill* atravessa o duto. Pode ser mitigado reduzindo `voxel-size`, mas isso multiplica o custo global por 8×.
 
-**Hierarchical Voxel Flood-Fill**: refina adaptativamente apenas na vizinhança da casca do *shaft*. A resolução fina onde a geometria exige não paga o custo global — **motivação direta para a contribuição da Fase 8**.
+**Hierarchical Voxel Flood-Fill**: refina adaptativamente apenas na vizinhança da casca do *shaft*. A resolução fina onde a geometria exige não paga o custo global — **motivação direta para a contribuição da Fase 5**.
 
 **Ray casting**: falha análoga ao caso 1 (raio horizontal intercepta a parede oposta do *shaft*).
 
@@ -808,7 +617,7 @@ Modelos IFC reais frequentemente têm malhas com *gaps* de 1 voxel na casca (ver
 ### Por que isso sustenta a escolha da contribuição
 
 - Os casos 1 e 3 isolam exatamente onde *ray casting* falha: **topologia aberta em escalas pequenas**. *Ray casting* não vê o caminho de fuga; *flood-fill* volumétrico vê.
-- O caso 3 isola onde voxel **uniforme** é financeiramente proibitivo para resolver corretamente — o custo cresce cúbica com o refinamento. A contribuição original da Fase 8 ataca esse *tradeoff* preservando a robustez do *flood-fill*.
+- O caso 3 isola onde voxel **uniforme** é financeiramente proibitivo para resolver corretamente — o custo cresce cúbica com o refinamento. A contribuição original da Fase 5 ataca esse *tradeoff* preservando a robustez do *flood-fill*.
 - Todos os quatro casos geram rastreabilidade por `GlobalId` (o voxel mantém a lista de ocupantes durante a rasterização), alinhados com o critério da pergunta de pesquisa.
 
 ---
@@ -817,7 +626,7 @@ Modelos IFC reais frequentemente têm malhas com *gaps* de 1 voxel na casca (ver
 
 Backlog de melhorias que **não** estão no escopo da defesa de abr/2027, registradas aqui para documentação e para eventual continuidade pós-TCC.
 
-> *Hierarchical Voxel Flood-Fill* **não está neste backlog** — foi promovida para o escopo do trabalho como Fase 8 (contribuição original).
+> *Hierarchical Voxel Flood-Fill* **não está neste backlog** — está no escopo do trabalho como Fase 5 (contribuição original).
 
 - **Paralelismo na rasterização.** Cada triângulo marca voxels independentes; um `Parallel.For` sobre a lista de triângulos (com sincronização na escrita do `HashSet<string>` de ocupantes) dá *speedup* quase linear em modelos grandes. Cuidado com determinismo — exige ordenação final estável (ver §Determinismo do Método).
 - **SIMD no teste SAT triângulo-caixa.** A cascata de 13 eixos do Akenine-Möller (1997) é vetorizável via `System.Numerics.Vector<T>`: os três produtos escalares por eixo viram uma única instrução SIMD. Benefício esperado: ~3× no *hot loop* da rasterização.
@@ -826,17 +635,19 @@ Backlog de melhorias que **não** estão no escopo da defesa de abr/2027, regist
 - **Terminação antecipada do *flood-fill*.** Parar `GrowExterior` quando todos os voxels `Occupied` adjacentes a exterior já foram tocados. Exige manter um contador de voxels de casca por elemento; complexidade adicional pode não valer o ganho (o *flood-fill* em si já é O(V) com constante pequena).
 - **Cache persistente de `ShapeGeometry`.** Re-executar o pipeline no mesmo IFC hoje re-triangula tudo via xBIM. Um cache em disco por `(file-hash, EntityLabel)` cortaria tempo de *iteration loop* em testes de regressão.
 
-Cada item entra como *issue* do repositório apenas se o *profiling* da Fase 3 (comparação Voxel × RayCasting) apontar o gargalo real.
+Cada item entra como *issue* do repositório apenas se o *profiling* pós-P3 (com modelos selecionados em P4.2 e/ou comparação 3-vias da P5) apontar o gargalo real.
 
 ---
 
 ## IsExternal e LoD — Decisões de Design
 
-### IsExternal não pertence ao BuildingElement
+### IsExternal não pertence ao Element
 
-A propriedade `IsExternal` do IFC (`Pset_WallCommon`, etc.) é **não confiável** em modelos reais. O IFC_BuildingEnvExtractor da TU Delft ignora-a por padrão (`ignoreIsExternal_ = true`).
+A propriedade `IsExternal` do IFC (`Pset_WallCommon`, etc.) é **não confiável** em modelos reais — o IFC_BuildingEnvExtractor da TU Delft ignora-a por padrão (`ignoreIsExternal_ = true`). O algoritmo *computa* exterioridade; incluir `IsExternal` no modelo de domínio criaria dualidade confusa.
 
-O algoritmo *computa* exterioridade — incluir `IsExternal` no modelo de domínio criaria dualidade confusa. A propriedade é extraída opcionalmente pelo `XbimModelLoader` e inserida como campo de **comparação** no relatório JSON:
+**Schema atual (v1).** Não expõe `IsExternal` declarada — só `isExterior` computado por elemento.
+
+**Schema alvo (v2, após P4.3).** Expõe comparação `computed` × `declared` por elemento, permitindo a métrica de validação *"em N% dos casos a classificação geométrica concordou com a propriedade declarada"*:
 
 ```json
 {
@@ -846,8 +657,6 @@ O algoritmo *computa* exterioridade — incluir `IsExternal` no modelo de domín
   "agreement": true
 }
 ```
-
-Isto permite uma métrica de validação: *"Em N% dos casos, a classificação geométrica concordou com a propriedade IsExternal declarada."*
 
 ### Sistema de LoD adotado (ADR-15)
 
@@ -869,7 +678,7 @@ LoD <classe>.<detalhe>      ← Biljecki/van der Vaart
 | Roof (2.x) | 2.2 | Telhado detalhado + paredes + storeys |
 | Facade (3.x) | **3.2** | **Core do TCC** — shell semântico com `Facade[]` e `Face` classificadas |
 | Full (4.x) | 4.0, 4.1, 4.2 | BIM-level 1:1, filtrado por exterior, faces coplanares fundidas |
-| Voxel (5.0) | 5.0 (v.0) | **Não é LoD separado** — é saída do sistema de debug (ADR-16) via `DebugVoxelSet` |
+| Voxel (5.0) | 5.0 (v.0) | **Não é LoD separado** — é saída do sistema de debug (ADR-17) via `GeometryDebug.Voxels()` |
 
 **Rastreabilidade preservada em todos os LoDs.** Cada `LodOutput` carrega `ElementProvenance: IReadOnlyCollection<string>` (GlobalIds dos elementos que contribuíram), satisfazendo a exigência da questão de pesquisa *"preservando rastreabilidade semântica"*.
 
@@ -883,11 +692,11 @@ Formato curto: decisão, motivo, consequência. Decisões históricas revogadas 
 
 ### ADR-01 — [REVOGADA por ADR-09]
 
-Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profunda arbitrária. Análise pós-decisão mostrou que IFC real mantém agregações em 2 níveis — recursão é *overengineering*. Substituída por ADR-09 + ADR-11.
+Previa `LeavesDeep()` recursivo em `Element` para navegar árvore profunda arbitrária. Análise pós-decisão mostrou que IFC real mantém agregações em 2 níveis — recursão é *overengineering*. Substituída por ADR-09 + ADR-11.
 
 ### ADR-02 — `IfcRelFillsElement` é ignorado no loader
 
-**Decisão.** Janela, porta e parede são carregadas como `BuildingElement`s independentes. A relação "janela preenche void na parede" não é preservada via metadado IFC; é descoberta pelos algoritmos via geometria (bounding-box overlap, proximidade).
+**Decisão.** Janela, porta e parede são carregadas como `Element`s independentes. A relação "janela preenche void na parede" não é preservada via metadado IFC; é descoberta pelos algoritmos via geometria (bounding-box overlap, proximidade).
 
 **Motivo.** Fiel ao princípio "geometria primeiro, IFC properties são hints". Mantém loader simples; não cria dependência em metadado que pode faltar em modelos de baixa qualidade.
 
@@ -903,19 +712,19 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 ### ADR-04 — `Face` = `Element` + `TriangleIds` + `Plane3d`
 
-**Decisão.** `Face` referencia `BuildingElement` diretamente, carrega índices de triângulos no mesh do elemento (não duplica geometria) e um `Plane3d` ajustado por PCA (substitui `Normal + PointOnPlane` separados).
+**Decisão.** `Face` referencia `Element` diretamente, carrega índices de triângulos no mesh do elemento (não duplica geometria) e um `Plane3d` ajustado por PCA (substitui `Normal + PointOnPlane` separados).
 
 **Motivo.** Rastreabilidade forte (`face.Element.GlobalId` funciona direto) sem lookup externo; sem duplicação de geometria; `Plane3d` centraliza `Normal`, `PointOnPlane`, `Distance(p)`, `Project(p)`.
 
-**Consequência.** Acoplamento `Face → BuildingElement` é aceitável — unidirecional, ambos em Core. Em serialização JSON, usar `[JsonIgnore]` em `Face.Element` e expor só `Element.GlobalId` evita ciclos.
+**Consequência.** Acoplamento `Face → Element` é aceitável — unidirecional, ambos em Core. Em serialização JSON, usar `[JsonIgnore]` em `Face.Element` e expor só `Element.GlobalId` evita ciclos.
 
-### ADR-05 — `IElementFilter` em Core + default inclusivo + override CLI
+### ADR-05 — `ElementFilter` em Ifc + default inclusivo + override CLI
 
-**Decisão.** Filtro de tipos IFC é interface em Core. `DefaultElementFilter` traz uma lista hardcoded razoável. `XbimModelLoader` recebe `IElementFilter` por construtor. CLI aceita `--include-types X,Y,Z` e `--exclude-types A,B` para montar filtro programaticamente. Config opcional em `data/elementFilter.json` para persistência por modelo.
+**Decisão.** Filtro de tipos IFC vive em `src/Ifc/Loading/ElementFilter.cs` (movido de Core junto com o pipeline em P4.1; depende de `IIfcProduct` direto, então pertence a Ifc). `XbimModelLoader` recebe `ElementFilter` por construtor (default: lista hardcoded razoável). CLI aceita `--include-types X,Y,Z` e `--exclude-types A,B` para montar filtro programaticamente. Config opcional em `data/elementFilter.json` para persistência por modelo.
 
-**Motivo.** Feedback explícito: *"o filtro deve ser facilmente alterado no futuro, até pelo usuário se necessário"*. Interface permite DI em testes, CLI permite override sem recompilar.
+**Motivo.** Feedback explícito: *"o filtro deve ser facilmente alterado no futuro, até pelo usuário se necessário"*. Construtor configurável permite DI em testes, CLI permite override sem recompilar.
 
-**Consequência.** `DefaultElementFilter` fica *opinativo* — inclui `IfcRailing`, exclui `IfcFooting`, etc. Decisões do default são documentadas e questionáveis em PR.
+**Consequência.** `ElementFilter` default fica *opinativo* — inclui `IfcRailing`, exclui `IfcFooting`, etc. Decisões do default são documentadas e questionáveis em PR.
 
 ### ADR-06 — `BcfWriter` + Viewer em paralelo
 
@@ -925,23 +734,23 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 **Consequência.** Há duas implementações de BCF no projeto. A do Viewer pode divergir (anotações manuais, viewpoints editados) da do CLI (viewpoints gerados). Compartilhar código via biblioteca BCF comum (`iabi.BCF` ou equivalente) quando possível.
 
-### ADR-07 — Viewer MVP default; Completo como stretch goal (revisado por ADR-12; possível absorção por ADR-16)
+### ADR-07 — Viewer MVP default; Completo como stretch goal (revisado por ADR-12; possível absorção por ADR-17)
 
 **Decisão.** O entregável obrigatório do Viewer é o **MVP**: render 3D dos meshes coloridos por fachada, inspeção por elemento e filtro exterior/interior. **Edição manual de rotulação** e **export BCF** são *stretch goals* condicionais a stage gates (Precision/Recall do Stage 1 aceitáveis + tempo de cronograma). A versão anterior desta ADR tratava o Viewer Completo como obrigatório; ADR-12 reclassificou.
 
 **Motivo.** Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa. O MVP já satisfaz o critério #4 do TCC (≥4 ferramentas BIM) quando somado a Revit/ArchiCAD/FME/Solibri na validação. Edição + BCF entram apenas se houver folga após P1–P5.
 
-**Consequência.** Contingência documentada: se Precision/Recall do Stage 1 forem insuficientes até set/2026 ou se cronograma estiver apertado, o Viewer permanece em escopo MVP e BCF é gerado pela CLI (ADR-06). Stage gates detalhados continuam na seção Viewer (§ Viewer).
+**Consequência.** Contingência documentada: se Precision/Recall do Stage 1 forem insuficientes ou se cronograma estiver apertado, o Viewer permanece em escopo MVP e BCF é gerado pela CLI (ADR-06). Stage gates detalhados continuam na seção Viewer (§ Viewer).
 
 > **Possível absorção (decisão em Fase 7, ver ADR-17).** O sistema de debug adotado (ADR-17) produz um viewer HTML local em `tools/debug-viewer/` a partir da Fase 3. Se esse viewer evoluir para UX amigável a especialistas AEC, o Viewer Blazor MVP pode ser absorvido — elimina-se o Viewer como projeto separado, energia concentra no debug-viewer que serve duplo propósito (dev + end-user). A decisão é adiada para Fase 7; até lá, Viewer segue como stretch goal de ADR-07 revisado.
 
-### ADR-08 — `BuildingElement` anêmico + `IEquatable` + `BuildingElementContext`
+### ADR-08 — Capability interfaces sem base abstrata; identidade por GlobalId
 
-**Decisão.** `BuildingElement` tem apenas `GlobalId`, `IfcType`, `Mesh`, `Context` (record struct com `SiteId`/`BuildingId`/`StoreyId`) e `GroupGlobalId` opcional. Implementa `IEquatable<BuildingElement>` por `GlobalId`. Sem `BoundingBox` cacheada, sem `Centroid` derivado, sem propriedades IFC avançadas.
+**Decisão (revisada em P4.1).** Domínio organizado por **interfaces de capacidade ortogonais**, sem classe abstrata comum. Cada concrete (`Element`, `Storey`, `Space`) implementa apenas o que faz sentido + `IEquatable<T>` próprio. As interfaces vivem em duas camadas: `Core/Domain/Interfaces/` (puras — `IIfcEntity`, `IBoxEntity`, `IMeshEntity`) e `Ifc/Domain/Interfaces/` (`IProductEntity`, expõe tipos xBIM). Métodos (`GetMesh()`, `GetBoundingBox()`) em vez de propriedades — sinaliza honestamente que pode haver custo (lazy load).
 
-**Motivo.** Core desacoplado de xBIM. Domínio enxuto e testável. `IEquatable` habilita `HashSet`/`Distinct`/`Dictionary` sem lambdas. `required init` torna testes legíveis.
+**Motivo.** A versão anterior previa `abstract class IfcEntity` para deduplicar equality boilerplate (~5 linhas por concrete). O custo era hierarquia rígida: `Storey` (sem mesh) atritava com `Element` (com mesh) na herança, e o split planejado `Element` × `ElementGroup` (ADR-11 original) gerava duplicação de tipo só para cumprir a base. Trocando 15 linhas de duplicação total por uma hierarquia plana de classes independentes, ganhamos: cada concrete é autocontido; `Element` pode ser subclassed por `Space` sem comprometer Storey; capability interfaces fazem dispatch polimórfico onde realmente importa (`IEnumerable<IBoxEntity>` aceita Element + Space).
 
-**Consequência.** Callers que precisam de bounding box chamam `element.Mesh.GetBounds()` no ponto de uso. Qualquer metadado IFC além dos 3 IDs espaciais é buscado via `IIfcProductResolver` (ADR-10) na camada Ifc.
+**Consequência.** Cada concrete carrega ~5 linhas de `Equals`/`GetHashCode`. `IIfcEntity` continua o root universal (identidade). `IProductEntity` em `Ifc/` mantém `Core` desacoplado de xBIM. Metadado IFC além do bundle `IfcProductContext` (Pset_*, material via lookup cruzado) continua acessível via `IIfcProductResolver` (ADR-10), agora **caminho secundário** — primário é `_ctx.Product` direto.
 
 ### ADR-09 — Agregação IFC de building elements tem 2 níveis fixos
 
@@ -953,33 +762,29 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 
 ### ADR-10 — `IIfcProductResolver` na camada Ifc
 
-**Decisão.** Interface em `IfcEnvelopeMapper.Ifc` (não em Core). `XbimIfcProductResolver` indexa `IfcStore.Instances.OfType<IIfcProduct>()` por `GlobalId` em `Dictionary`. Viewer, Cli, testes importam quando precisam de metadados IFC não previstos em `BuildingElementContext`.
+**Decisão.** Interface em `IfcEnvelopeMapper.Ifc` (não em Core). `XbimIfcProductResolver` indexa `IfcStore.Instances.OfType<IIfcProduct>()` por `GlobalId` em `Dictionary`. Viewer, Cli, testes importam quando precisam de queries cruzadas que partem do `IfcStore` e não podem ser resolvidas via `IfcProductContext` direto.
 
 **Motivo.** Core permanece sem referência a xBIM. Resolver explicita que o consumidor está acoplando ao schema IFC. Index evita O(n) por lookup.
 
 **Consequência.** Propriedades IFC são *hints* — algoritmos Core não dependem do resolver. Uso típico: Viewer mostra `Pset_WallCommon` ao clicar em elemento; BCF export lê material/tag; testes de integração acessam metadados específicos.
 
-### ADR-11 — Split do modelo: `BuildingElement` (átomo) + `BuildingElementGroup` (agregador)
+### ADR-11 — Modelo único: `Element` átomo ou composite via `Children`
 
-**Decisão.** Loader retorna `ModelLoadResult(Elements, Groups)`. `BuildingElement` sempre tem geometria. `BuildingElementGroup` agrupa Elements de um agregador IFC (`IfcCurtainWall`, `IfcStair` etc.); tem `OwnMesh` opcional.
+**Decisão (revisada em P4.1).** Não há classe `ElementGroup`. Composites IFC (`IfcCurtainWall`, `IfcRoof`, etc.) são `Element` instances com `Children` populado; átomos têm `Children = []`. Identificação em runtime: `element.Children.Count > 0`. O composite tem seu próprio `_lazyMesh` que mescla os meshes filhos via `DMesh3Extensions.Merge` no primeiro acesso (lazy, não eager). `Element.GroupGlobalId` continua como back-ref opcional do filho ao composite pai. O loader retorna `ModelLoadResult(Elements, Storeys, Metadata) : IDisposable` — `Elements` contém composites + atômicos top-level.
 
-**Motivo.** Modelo único com `Mesh` opcional e `Children` opcional criava estados inválidos (átomo com children, agregador sem children). O split elimina isso por construção. Algoritmos consomem só `model.Elements` — comportamento trivial, sem `LeavesDeep`. `Groups` servem à rastreabilidade no relatório JSON e ao Viewer.
+**Motivo.** Forma única (Element) elimina duplicação de tipo só para distinguir átomo vs composite. Algoritmos de detecção iteram `model.Elements` e tratam ambos pela mesma interface — quem precisa dos painéis individuais lê `element.Children`. Lazy merge atrasa o custo do `DMesh3Extensions.Merge` até o primeiro `GetMesh()` — Inspector que só usa bbox nunca paga. A versão anterior desta ADR previa classe separada `ElementGroup` herdando de `IfcEntity` abstract; refactor de P4.1 (ver ADR-08) tornou isso desnecessário.
 
-**Consequência.** `BuildingElement.GroupGlobalId` é back-ref opcional por `string` (evita ciclos em serialização). Filho sem geometria (ex: `IfcCurtainWallPanel` vazio) é descartado pelo loader — não vira Element, não entra em `Group.Elements`.
+**Consequência.** Filho sem geometria (ex: `IfcCurtainWallPanel` vazio) é descartado pelo loader — não vira `Element`, não entra em `Children`. Custo do merge: composite materializado carrega triângulos duplicados (também presentes nos `Children`); aceitável para 10–100 composites por modelo. Detecção de composite em consumers: `if (element.Children.Count > 0) ...`.
 
-### ADR-12 — Escopo reduzido: 1 primária + 1 fallback + baseline, Stage 1 antes de Stage 2, Viewer MVP default
+### ADR-12 — [REVOGADA por ADR-14 (estratégias) e ADR-17 (Viewer)]
 
-**Decisão.** O método implementa **uma** estratégia primária (`RayCastingDetectionStrategy`, Ying 2022) e **uma** estratégia de fallback (`VoxelFloodFillStrategy`, van der Vaart 2022 / Liu 2021). `NormalsStrategy` é reduzida a baseline trivial de ~20 linhas, usada apenas para comparação no capítulo de Discussão; não é mais estratégia completa. O pipeline é serializado: Stage 1 (detecção + avaliação por contagem TP/FP/FN/TN + Precision/Recall sobre ground truth) precede Stage 2 (agrupamento DBSCAN); Stage 2 não inicia até Precision/Recall do Stage 1 serem aceitáveis (threshold calibrado após primeira medição em P2). O Viewer entrega um MVP (render 3D + cores por fachada) como default; edição manual e export BCF (escopo do ADR-07 original) ficam como stretch goals sob stage gate.
+Previa RayCasting como primária e Voxel como fallback, com `NormalsStrategy` como baseline trivial; ordem de fases P1 → P2 (RayCasting) → P3 → P4 (Voxel) → P5 (DBSCAN). ADR-14 inverteu (Voxel primária por robustez, RayCasting baseline externo) e descartou `NormalsStrategy`. ADR-17 substituiu o caminho de Viewer Blazor por debug-viewer + `[Conditional("DEBUG")]`.
 
-**Motivo.** (a) Prazo até abr/2027 não comporta três estratégias implementadas em paralelo; literatura (Ying 2022; van der Vaart 2022) sustenta RayCasting + Voxel como combinação suficiente e complementar. (b) DBSCAN depende criticamente da qualidade do Envelope; calibrar agrupamento antes de ter detecção confiável é desperdício de esforço. (c) Viewer Completo é o item de maior risco de cronograma e não é a questão de pesquisa — MVP satisfaz o critério "≥4 ferramentas BIM" quando somado a Revit/ArchiCAD/FME/Solibri para validação.
-
-**Consequência.** ADR-07 é redefinido: Viewer MVP é o entregável obrigatório; Viewer Completo é condicional. A ordem das Fases muda: testes/CI (P1) → RayCasting ponta-a-ponta (P2) → JsonReportWriter (P3) → Voxel fallback (P4) → DBSCAN grouper (P5) → Viewer MVP (P6). A tabela comparativa das três estratégias permanece no plano como registro de alternativas investigadas — valor para Discussão e Ameaças à Validade.
-
-> **Nota:** ADR-12 é **superseda parcialmente por ADR-14** quanto à escolha de estratégias. Permanecem válidos: Stage 1 antes de Stage 2, gate baseado em Precision/Recall aceitáveis (threshold calibrado em P2 — ver critério de P2), Viewer MVP como default. A ordem de fases e o papel das estratégias foram redefinidos — ver ADR-14. F1 e Kappa foram removidos do plano de avaliação após leitura das referências canônicas (van der Vaart 2022 usa contagens manuais; Ying 2022 usa apenas Precision/Recall).
+**Permanecem válidos** (não-revogados): Stage 1 antes de Stage 2 (gate baseado em Precision/Recall aceitáveis, threshold calibrado em P2). F1 e Kappa removidos do plano de avaliação após leitura das referências canônicas — van der Vaart 2022 usa contagens manuais, Ying 2022 usa apenas Precision/Recall.
 
 ### ADR-13 — Aproveitamento máximo da stack para matemática e indexação espacial
 
-**Decisão.** Matemática de detecção e agrupamento (plane-fit PCA, eigen solver, interseção triângulo-AABB, histograma de normais na esfera de Gauss) usa classes já presentes em `geometry4Sharp`. **`NetTopologySuite.STRtree` é 2D apenas** — usado exclusivamente no LoD 0 (projeção XY, ADR-15). Para queries 3D sobre `BuildingElement` o plano é: linear scan com AABB test (n típico ≤ 10⁴ — O(n) é aceitável); para queries triangulo-a-triangulo, `g4.DMeshAABBTree3` (BVH 3D nativo do geometry4Sharp). Nenhum `MathNet.Numerics` é adicionado; nenhum algoritmo clássico (Akenine-Möller tri-AABB) é re-implementado localmente.
+**Decisão.** Matemática de detecção e agrupamento (plane-fit PCA, eigen solver, interseção triângulo-AABB, histograma de normais na esfera de Gauss) usa classes já presentes em `geometry4Sharp`. **`NetTopologySuite.STRtree` é 2D apenas** — usado exclusivamente no LoD 0 (projeção XY, ADR-15). Para queries 3D sobre `Element` o plano é: linear scan com AABB test (n típico ≤ 10⁴ — O(n) é aceitável); para queries triangulo-a-triangulo, `g4.DMeshAABBTree3` (BVH 3D nativo do geometry4Sharp). Nenhum `MathNet.Numerics` é adicionado; nenhum algoritmo clássico (Akenine-Möller tri-AABB) é re-implementado localmente.
 
 **Motivo.** Investigação das ferramentas de referência (Voxelization Toolkit, IFC_BuildingEnvExtractor) mostrou que ambas escreveram voxel storage e flood-fill do zero, mas delegaram math fundamental a Eigen/OCCT/Boost. A stack .NET **não tem equivalente direto ao `Boost.Geometry rstar<Point3D>`** — tentar usar `STRtree` em 3D foi um erro da versão anterior desta ADR. Análise do hot path do algoritmo mostra que: (i) voxelização itera `elemento → triângulos → voxels` (não precisa indexar elementos); (ii) provenance é guardada em `grid[v].Elements` (não precisa query reversa indexada); (iii) DBSCAN opera em R³ unitário (Gauss sphere, não espaço físico); (iv) adjacência de faces é O(f²) com f pequeno. Linear scan basta. Se profiling futuro apontar gargalo, um octree custom (~150 linhas) resolve sem depender de lib.
 
@@ -990,10 +795,10 @@ Previa `LeavesDeep()` recursivo em `BuildingElement` para navegar árvore profun
 | `Face.FittedPlane` via PCA (ADR-04) | `g4.OrthogonalPlaneFit3` |
 | Normais de mesh (ponderadas por área) | `g4.MeshNormals` |
 | Eigen genérico (se portar `dimensionality_estimate`) | `g4.SymmetricEigenSolver` |
-| Voxelização — interseção triângulo-AABB (P2+P3) | SAT próprio (Akenine-Möller 1997) — `g4.IntrTriangle3Box3` ausente |
-| Esfera de Gauss pré-discretizada (P5, opcional) | `g4.NormalHistogram` |
-| BVH 3D de triângulos por mesh (ray casting P4) | `g4.DMeshAABBTree3` |
-| Queries AABB 3D sobre `BuildingElement` | Linear scan com AABB pre-filter |
+| Voxelização — interseção triângulo-AABB (P2 ✅) | SAT próprio (Akenine-Möller 1997) — `g4.IntrTriangle3Box3` ausente |
+| Esfera de Gauss pré-discretizada (P4.3, opcional) | `g4.NormalHistogram` |
+| BVH 3D de triângulos por mesh (ray casting P3 ✅) | `g4.DMeshAABBTree3` |
+| Queries AABB 3D sobre `Element` | Linear scan com AABB pre-filter |
 | Índice R-tree **2D** (união de polígonos no LoD 0) | `NetTopologySuite.STRtree` |
 | Clustering DBSCAN | `DBSCAN` (NuGet) |
 | Grafo + componentes conectados | `QuikGraph` |
@@ -1010,7 +815,7 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 
 **Consequência.**
 - CLI default: `--strategy voxel` (removidas `raycast` como default e `normals` como opção).
-- Ordem das Fases atualizada: P1 (infra) → P2 (Voxel ponta-a-ponta + debug visual) → P3 (RayCasting baseline + JSON/BCF) → P4 (LoDs 0.x–2.x) → P5 (DbscanFacadeGrouper) → P6 (LoDs 3.x–4.x) → P7 (Viewer MVP).
+- Ordem das Fases: P1 (infra) → P2 (Voxel ponta-a-ponta + debug visual) → P3 (RayCasting baseline + JSON/BCF) → P4 (Domain refactor + IfcInspector + DbscanFacadeGrouper) → **P5 (Hierarchical Voxel — contribuição original)** → P6 (LoDs 0.x → 4.x) → P7 (Viewer MVP).
 - Pseudocódigo 1A (Normais) removido do plano; 1B (RayCasting) reclassificado como baseline; 1C (Voxel) renomeado para 1A e expandido como primária com cascata 4-testes + 3 fases + `FillGaps`.
 - Provenance em Voxel: cada voxel mantém `Elementos` (set de `GlobalId`) ao ser marcado ocupado; classificação final lê essa lista. Padrão replicado do `internalProducts_` do EnvExtractor.
 - Contingência: se voxel em P2 falhar em fixtures com detalhes finos (ex: janelas <300mm) e não houver calibração satisfatória via `voxel-size`, reconsiderar voxel adaptativo ou (última opção) RayCasting como primária. Decisão documentada em novo ADR caso necessário.
@@ -1019,7 +824,7 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 
 **Atualização (2026-04-24) — revisão de método: 3-way comparison com contribuição original.**
 
-- A **Fase 8 — Hierarchical Voxel Flood-Fill** (17/jan → 13/mar/2027; 8 semanas) introduz uma terceira estratégia, implementada como **contribuição original do TCC**. Detalhamento no cronograma (§Fases) e em §Comportamento em casos geométricos chave.
+- A **Fase 5 — Hierarchical Voxel Flood-Fill** (20/jul → 13/set/2026; 8 semanas) introduz uma terceira estratégia, implementada como **contribuição original do TCC**. Detalhamento no cronograma (§Fases) e em §Comportamento em casos geométricos chave.
 - `VoxelFloodFillStrategy` (uniforme) é **reenquadrada como ablation baseline**: mesma família algorítmica que a contribuição (flood-fill 3-fases de van der Vaart 2022), difere apenas na discretização espacial. Sustenta o argumento *"o ganho vem da hierarquia, não de truques ortogonais"*.
 - `RayCastingStrategy` (Ying 2022) **permanece como baseline externo** — caracteriza o tradeoff precisão-vs-robustez contra um método state-of-the-art de família algorítmica distinta.
 - A comparação no capítulo de Resultados passa a ser **3-way** (voxel uniforme vs. Hierarchical Voxel Flood-Fill vs. ray casting), ancorada na bateria de casos geométricos chave (poço de luz, átrio coberto, eixo estreito, `FillGaps`).
@@ -1027,68 +832,41 @@ Se surgir necessidade de indexação 3D performante (profiling futuro), avaliar 
 
 ### ADR-15 — Adoção do framework LoD (Biljecki/van der Vaart)
 
-**Decisão.** Adotar o sistema LoD de Biljecki et al. (2016), refinado por van der Vaart (2022) no IFC_BuildingEnvExtractor, como **sistema de saídas** do IfcEnvelopeMapper. 10 LoDs standard implementados via `ILodGenerator` em projeto novo `IfcEnvelopeMapper.Lod/`. Experimentais (b.0, c.1, c.2, d.1, d.2, e.1) descartados. LoD 0 via **projeção XY** (não convex hull — preserva formas L/U). LoD 5.0 (voxel) **subsumido pelo sistema de debug** (ADR-16), não é LoD separado.
+**Decisão.** Adotar o sistema LoD de Biljecki et al. (2016), refinado por van der Vaart (2022) no IFC_BuildingEnvExtractor, como **sistema de saídas** do IfcEnvelopeMapper. 10 LoDs standard implementados via `ILodGenerator` em `Engine/Pipeline/Lod/` (mesmo padrão de `Engine/Pipeline/JsonReport/` + `Engine/Pipeline/BcfReport/` entregues em P3). Experimentais (b.0, c.1, c.2, d.1, d.2, e.1) descartados. LoD 0 via **projeção XY** (não convex hull — preserva formas L/U). LoD 5.0 (voxel) **subsumido pelo sistema de debug** (ADR-16), não é LoD separado.
 
 **LoDs adotados:** `0.0, 0.2, 1.0, 1.2, 2.2, 3.2, 4.0, 4.1, 4.2`. A contribuição original do TCC (facade como agregado composto com provenance IFC) vive no **LoD 3.2**. LoDs 0.3/0.4/1.3/2.2-roof-inclinado e variantes experimentais descartados para conter escopo — detecção de superfícies inclinadas de telhado em níveis de footprint/block é overkill; em 3.2 já há semantic face classification que cobre o caso.
 
 **Motivo.** (a) Posicionamento acadêmico forte: *"este trabalho estende o LoD 3.2 do framework Biljecki/van der Vaart introduzindo facade como entidade composta com provenance IFC"* é narrativa sólida para a banca. (b) Stage 1 + Stage 2 produzem o mesmo `DetectionResult + Facade[]` independente de LoD — os geradores são transformações de saída, não alteram o algoritmo core. (c) Múltiplos LoDs atendem múltiplos casos de uso (GIS LoD 0-1, modelagem urbana LoD 2, BIM LoD 3-4) — reforça o critério #4 do TCC (≥4 ferramentas BIM). (d) LoD 0 com projeção XY (em vez de convex hull) preserva forma exata; convex hull perderia informação em edifícios em L ou com poço de luz.
 
 **Consequência.**
-- Novo projeto `IfcEnvelopeMapper.Lod/` com 10 `ILodGenerator` implementations + `LodRegistry`.
+- 10 `ILodGenerator` implementations + `LodRegistry` em `Engine/Pipeline/Lod/` (single folder; tipos de DTO em `Lod/Types/` se necessário, seguindo o padrão de `Pipeline/Evaluation/Types/`). **Sem novo projeto.**
 - Remoção da seção "Sem sistema de LoD" (substituída por "Sistema de LoD adotado").
 - CLI ganha flag `--lod <lista>` (default: `3.2`). Saídas em arquivos separados por LoD.
 - Schema JSON v3 substitui v2 para o LoD 3.2; outros LoDs usam formatos naturais (GeoJSON para 0.x, glTF/OBJ para 2.x+, etc.).
 - Rastreabilidade (`ElementProvenance: IReadOnlyCollection<string>` com `GlobalId`s) preservada em todos os LoDs — satisfaz a questão de pesquisa em qualquer nível de saída.
 
-### ADR-16 — Sistema de debug multi-estágio via glTF
+### ADR-16 — [REVOGADA por ADR-17]
 
-> ⚠️ **Substituída por ADR-17 (2026-04-19).** Ver ADR-17 abaixo.
-
-**Decisão (Opção A — facade estático).** Projeto novo `IfcEnvelopeMapper.Debug/` define `IDebugSink` em Core e implementa sinks em Debug/. Sink primário: `GltfDebugSink` (via `SharpGLTF.Toolkit`). `NullDebugSink` default em produção.
+Previa runtime `IDebugSink`/`NullDebugSink`/`GltfDebugSink` em projeto separado `IfcEnvelopeMapper.Debug/`. ADR-17 substituiu por classe estática `GeometryDebug` com `[Conditional("DEBUG")]`.
 
 ---
 
-### ADR-17 — Debug geométrico via compilação condicional (#if DEBUG)
+### ADR-17 — Debug geométrico via `[Conditional("DEBUG")]` + viewer HTTP em processo separado
 
-**Decisão.** Substituir a arquitetura de runtime `IDebugSink`/`NullDebugSink`/`GltfDebugSink` por uma classe estática `GeometryDebug` em `IfcEnvelopeMapper.Geometry/Debug/`, inteiramente envolvida em `#if DEBUG`. Em builds Release, todas as chamadas são eliminadas pelo pré-processador do C# — zero overhead, zero configuração, sem null-object pattern. Em builds Debug, cada método acumula formas na lista interna e chama `Flush()` imediatamente; na Fase 2, `Flush()` serializa para `%TEMP%\ifc-debug-output.gltf` via `SharpGLTF`. O developer define breakpoints no IDE para controlar o ritmo da inspeção.
+**Decisão.** Classe estática `GeometryDebug` em `src/Engine/Debug/Api/` com cada método público marcado `[Conditional("DEBUG")]` — em builds Release, todas as chamadas são eliminadas pelo compilador no call site (zero IL, zero overhead, sem null-object pattern). Em builds Debug, cada método acumula shapes via `DebugSession` e serializa para `C:\temp\ifc-debug-output.glb` via atomic write (`.tmp` + `File.Move`) a cada chamada — o GLB está pronto para inspeção a qualquer breakpoint.
 
-**Localização em Geometry (não Core).** `Voxels()` depende de `VoxelGrid3D`, que é um tipo Geometry. `Core` não pode referenciar `Geometry` — dependência invertida. Todos os projetos que precisam do debugger (Algorithms, Cli) já referenciam Geometry.
+Arquitetura em duas camadas:
+- **Camada A — `GeometryDebug` + `GltfSerializer` (obrigatória).** API de instrumentação chamada direto pelo algoritmo. `Engine/Debug/Api/` (`GeometryDebug`, `DebugSession`, `DebugShape`) + `Engine/Debug/Serialization/` (`GltfSerializer`, `AtomicFile`, `SidecarWriter`). SharpGLTF.Toolkit é a dependência.
+- **Camada B — `DebugServer` em processo OS separado (debug only).** Projeto EXE standalone (`src/DebugServer/`) spawned via `Process.Start` por `DebugSession`. `HttpListener` loopback-only em `:5173` serve o HTML de `tools/debug-viewer/` (three.js modular) + o GLB corrente; browser faz polling. Processo separado contorna o freeze do debugger .NET com política `Suspend: All` que congelaria um servidor in-process.
 
-**Motivo.** `IDebugSink` adicionava complexidade desnecessária: DI em construtores, null-sink em produção, fan-out. `#if DEBUG` é o padrão idiomático do C# para código de desenvolvimento — eliminação em compile-time, sem configuração.
+**Localização: `src/Engine/Debug/`** (não `Core`). `Voxels()` depende de `VoxelGrid3D` (Core), mas `GltfSerializer` traz `SharpGLTF.Toolkit` — dependência pesada que pertence a Engine pelo critério "se tem dep pesada, fica fora do Core".
+
+**Motivo.** `IDebugSink` (ADR-16 revogada) adicionava DI em construtores, null-sink em produção, fan-out — complexidade desnecessária. `[Conditional("DEBUG")]` é o padrão idiomático do C# para instrumentação de desenvolvimento. GLB (binário auto-contido) em vez de glTF (JSON + .bin) porque o viewer carrega num único fetch. `C:\temp\` em vez de `%TEMP%` porque Chromium bloqueia `AppData\Local\Temp` para File System Access API.
 
 **Consequência.**
-- Deletados de `Core`: `IDebugSink`, `DebugShape`, `DebugColor`, `NullDebugSink`, `Debug`.
-- `IfcEnvelopeMapper.Debug/` mantido como placeholder para utilitários opcionais de serialização futura.
-- Strategies e grouper chamam `GeometryDebug.Mesh(...)`, `GeometryDebug.Voxels(...)` etc. diretamente.
-- `SharpGLTF.Toolkit` permanece na stack — será usado em `Flush()` na Fase 2.
-- **ADR-07 pode ser absorvida.** Se o debug-viewer (Camada B) evoluir para UX amigável a end-user, Viewer MVP Blazor pode ser absorvido. Decisão adiada para Fase 5.
-
-**Atualização (2026-04-21) — implementação real diverge em 4 pontos.**
-
-- **Projeto.** `GeometryDebug` migrou de `IfcEnvelopeMapper.Geometry/Debug/` para **projeto próprio `IfcEnvelopeMapper.Debug/`** (promovido de placeholder a projeto real). Motivo: isola `SharpGLTF.Toolkit` e `System.Net.HttpListener` fora do núcleo geométrico.
-- **Eliminação em Release.** `#if DEBUG` substituído por **`[Conditional("DEBUG")]` por método público**. Mesmo efeito (compiler strip), mas aplicado no call site do chamador em vez de no corpo da API — zero `#if DEBUG` em `VoxelFloodFillStrategy.Detect(...)` ou `Program.cs`.
-- **Formato do arquivo.** `%TEMP%\ifc-debug-output.gltf` substituído por **`C:\temp\ifc-debug-output.glb`**. GLB (binário auto-contido) em vez de glTF (JSON + .bin separados) porque o viewer precisa carregar tudo em um único fetch. `C:\temp\` em vez de `%TEMP%` porque Chromium bloqueia `AppData\Local\Temp` para a File System Access API (fallback histórico) e porque a CLI já roda de `C:\temp\` sob Google Drive Streaming.
-- **Arquitetura em duas camadas.**
-  - **Camada A — `GeometryDebug` + `GltfSerializer` (obrigatória).** API de instrumentação chamada do algoritmo; acumula shapes e serializa para o GLB via atomic write (`.tmp` + `File.Move`) a cada chamada. É o que torna possível "pausar num breakpoint e o arquivo já está escrito".
-  - **Camada B — `DebugViewerServer` + `tools/debug-viewer/index.html` (debug only).** `HttpListener` loopback-only em `:5173`; serve o HTML e o GLB corrente. O browser faz polling a 200ms. Inicia automaticamente no static ctor de `GeometryDebug`; `[Conditional("DEBUG")]` garante zero custo em Release.
-
-**Limitação conhecida.** O `HttpListener` roda como thread gerenciada dentro do processo da CLI. Quando o debugger do .NET pausa num breakpoint com política default (`Suspend: All`), todas as threads congelam — incluindo o servidor — e o viewer não atualiza até a próxima F10. Paliativo: trocar política do breakpoint para `Suspend: Thread` no Rider/VS. Solução definitiva planejada: extrair `DebugViewerServer` para processo OS separado via `Process.Start` (próximo PR na Fase 2).
-
----
-
-## Determinismo do Método
-
-Requisito para responder à banca *"o método é determinístico?"* e para viabilizar testes de regressão por snapshot (§ Testes).
-
-**Aleatoriedade controlada.** DBSCAN e ordenações default podem produzir saídas não-determinísticas. Garantias:
-
-1. **Semente fixa** para qualquer uso de `Random`: `new Random(seed: 42)`. Seed é constante do projeto, documentada, nunca derivada de tempo/hostname.
-2. **Ordenação estável antes de iterar** em coleções cuja ordem afeta o resultado: `.OrderBy(e => e.GlobalId, StringComparer.Ordinal)`. Vale especialmente para o input do DBSCAN (primeira face vira primeiro cluster).
-3. **Sem paralelismo não controlado.** `Xbim3DModelContext.MaxThreads = 1` já está fixado (workaround OCCT); demais pipelines rodam sequencialmente. Se for introduzir PLINQ/`Parallel.For`, só com ordenação final explícita.
-
-**Teste de determinismo.** Em `tests/IfcEnvelopeMapper.Tests/Regression/`: rodar o pipeline no mesmo fixture 3× e comparar outputs byte-a-byte (após serialização JSON com chaves ordenadas). Falha se algum par diverge.
-
-**Regras para re-geração de snapshot.** Arquivos `expected-report.json` só são regerados em PR com (a) justificativa no commit message, (b) diff revisado por humano, (c) bump de versão do schema se a mudança for estrutural.
+- Strategies e grouper chamam `GeometryDebug.Element(...)`, `GeometryDebug.Voxels(...)` etc. diretamente. Zero `#if DEBUG` no código do algoritmo.
+- `IfcEnvelopeMapper.Debug/` (placeholder original) descartado; código vive em `Engine/Debug/{Api,Serialization}/` + projeto EXE `DebugServer`.
+- **ADR-07 pode ser absorvida (Fase 7).** Se o debug-viewer evoluir para UX amigável a end-user, Viewer MVP Blazor é descartado e o debug-viewer assume duplo papel (dev + end-user).
 
 ---
 
@@ -1110,7 +888,44 @@ foreach (var facade in facades)
 
 ---
 
-## Schema JSON v2
+## Schema JSON
+
+Três versões, evoluindo conforme as fases entregam novas saídas:
+
+- **v1 — atual** (PR #16, Fase 3): payload mínimo de detecção (Stage 1 + metadata).
+- **v2 — alvo** (após Fase 4.3 / DBSCAN): adiciona blocos `facades`, `aggregates`, `diagnostics`.
+- **v3 — alvo** (após Fase 6.4 / LoD 3.2; ver ADR-15): substitui v2 para o LoD 3.2 com `ElementProvenance` por LoD.
+
+### Schema JSON v1 — atual
+
+```json
+{
+  "schemaVersion": "1",
+  "input": "C:\\…\\duplex.ifc",
+  "strategy": "voxel",
+  "config": {
+    "voxelSize": 0.25,
+    "numRays": null,
+    "jitterDeg": null,
+    "hitRatio": null
+  },
+  "exteriorCount": 54,
+  "interiorCount": 93,
+  "elements": [
+    {
+      "globalId": "01KzA4SPn5IOODwLEb5RNY",
+      "ifcType": "IfcMember",
+      "isExterior": true
+    }
+  ],
+  "generatedAt": "2026-04-26T05:30:00.000+00:00",
+  "durationSeconds": 0.46
+}
+```
+
+Schema v1 cobre exatamente o que P3 entrega: detecção (Stage 1) + parâmetros + tempo. Não há `facades` (sem DBSCAN ainda), nem `aggregates`/`diagnostics`. O campo `config` carrega tunings nullable por estratégia: voxel preenche `voxelSize`, raycast preenche `numRays`/`jitterDeg`/`hitRatio`. Elementos ordenados por `GlobalId` (StringComparer.Ordinal) para output byte-estável.
+
+### Schema JSON v2 — alvo (após Fase 4.3 / DBSCAN)
 
 ```json
 {
@@ -1185,15 +1000,19 @@ foreach (var facade in facades)
 
 Quando `--ground-truth` é fornecido, o bloco `evaluation` é preenchido automaticamente com contagens TP/FP/FN/TN + Precision e Recall derivados (sem F1, sem Kappa — ver ADR-12).
 
-**Bloco `aggregates`.** Produzido a partir de `ModelLoadResult.Groups` (ADR-11). Lista cada `BuildingElementGroup` com o conjunto de fachadas em que seus Elements participaram — útil para relatórios agrupados por cortina de vidro, escada, etc.
+**Bloco `aggregates`.** Produzido a partir dos `Element`s com `Children.Count > 0` (composites — ADR-11). Lista cada composite com o conjunto de fachadas em que seus filhos participaram — útil para relatórios agrupados por cortina de vidro, escada, etc.
 
 **Bloco `diagnostics`.** Coleta warnings do `XbimModelLoader` e dos Stages 1/2: elementos descartados por mesh vazio, triangulações convertidas por fan-fallback, faces *noise* do DBSCAN. Alimentado por `ILogger<T>` com sink em memória. Ver seção Determinismo e estratégia de testes.
+
+### Schema JSON v3 — alvo (após Fase 6.4 / LoD 3.2)
+
+Detalhamento em **ADR-15**: substitui v2 para o LoD 3.2 com `ElementProvenance: IReadOnlyCollection<string>` (GlobalIds) por LoD, satisfazendo a questão de pesquisa em qualquer nível de saída. Outros LoDs usam formatos naturais (GeoJSON para 0.x, glTF/OBJ para 2.x+).
 
 ---
 
 ## Viewer — Curadoria Assistida (ADR-07)
 
-Segundo ponto de entrada: **ASP.NET Core Blazor Server + three.js**. Consome o mesmo `report.json` da CLI + o IFC original. A decisão sobre escopo (MVP Blazor vs absorção pelo debug-viewer) ocorre na **Fase 7** (dez/2026) — ver ADR-07 e ADR-17.
+Segundo ponto de entrada: **ASP.NET Core Blazor Server + three.js**. Consome o mesmo `report.json` da CLI + o IFC original. A decisão sobre escopo (MVP Blazor vs absorção pelo debug-viewer) ocorre na **Fase 7** (out–dez/2026) — ver ADR-07 e ADR-17.
 
 **MVP obrigatório:** render 3D colorido por fachada, filtro exterior/interior, inspeção por elemento (GlobalId, IfcType, `IIfcProductResolver`). Viewer **nunca re-executa o pipeline** — CLI = algoritmo automatizado, Viewer = revisão humana.
 
@@ -1203,203 +1022,148 @@ Segundo ponto de entrada: **ASP.NET Core Blazor Server + three.js**. Consome o m
 
 ---
 
-## Interface CLI v2
+## Interface CLI
+
+### Atual (pós-P4.1)
+
+Bootstrap em `src/Cli/Program.cs` (logger, AppLog, XbimServices, root wiring); cada sub-comando vive em `src/Cli/Commands/` (atualmente: `DetectCommand`).
 
 ```
-ifcenvmapper detect <model.ifc> [opções]
+ifcenvmapper detect --input <model.ifc> [opções]
 
-Opções globais:
-  --strategy      <voxel|raycast>                Estratégia de detecção     [padrão: voxel — ADR-14]
-  --grouper       <dbscan|directional>           Agrupamento em fachadas    [padrão: dbscan]
-  --lod           <lista>                        LoDs a gerar (ADR-15)       [padrão: 3.2]
-                                                 Válidos: 0.0,0.2,1.0,1.2,2.2,3.2,4.0,4.1,4.2
-  --output        <path>                         Diretório de saída         [padrão: ./output]
-  --format        <json|bcf|both>                Formato primário (LoD 3.2) [padrão: json]
-  --ground-truth  <labels.csv>                   Calcula contagens TP/FP/FN/TN + Precision/Recall (opcional)
-  --verbose                                      Logging detalhado
-
-Opções específicas por estratégia:
-  --voxel-size      <metros>    [voxel]        Aresta do voxel            [padrão: 0.5]
-  --ray-count       <int>       [raycast]      Raios por centroide        [padrão: 64]
-  --hit-ratio       <float>     [raycast]      Razão mínima exterior      [padrão: 0.5]
+Opções (já implementadas):
+  -i, --input         <path>           IFC a analisar (obrigatório)
+  -s, --strategy      <voxel|raycast>  Estratégia de detecção             [padrão: voxel — ADR-14]
+  -v, --voxel-size    <metros>         Aresta do voxel (só com voxel)     [padrão: 0.25]
+  -o, --output        <path>           Caminho do relatório (despacho por extensão):
+                                          .json            → JsonReportWriter
+                                          .bcf | .bcfzip   → BcfWriter
+                                       Sem flag: console-only.
 
 Exemplos:
-  ifcenvmapper detect duplex.ifc
-  ifcenvmapper detect duplex.ifc --lod 1.0,3.2 --voxel-size 0.25 --output results/
-  ifcenvmapper detect duplex.ifc --strategy raycast --ray-count 128   # baseline P4
-  ifcenvmapper detect duplex.ifc --ground-truth data/ground-truth/duplex.csv
+  dotnet run --project src/Cli/Cli.csproj -- detect --input data/models/duplex.ifc
+  dotnet run --project src/Cli/Cli.csproj -- detect -i duplex.ifc -s raycast -o report.json
+  dotnet run --project src/Cli/Cli.csproj -- detect -i duplex.ifc -s voxel -v 0.5 -o report.bcf
+```
+
+### Alvo (a implementar em fases futuras)
+
+```
+  --grouper       <dbscan|...>                   Agrupamento em fachadas       (P4 — DBSCAN)
+  --lod           <lista>                        LoDs a gerar (ADR-15)         (P6+; default `3.2`)
+                                                 Válidos: 0.0,0.2,1.0,1.2,2.2,3.2,4.0,4.1,4.2
+  --ground-truth  <labels.csv>                   Calcula contagens TP/FP/FN/TN  (P9 — Avaliação)
+  --verbose                                      Logging detalhado              (qualquer fase)
+  --num-rays      <int>       [raycast]          Raios por triângulo            (expor parâmetro hardcoded em RayCastingStrategy)
+  --hit-ratio     <float>     [raycast]          Razão mínima exterior          (idem)
+  --jitter-deg    <graus>     [raycast]          Cone de jitter da normal       (idem)
+
+Exemplos (futuros):
+  ifcenvmapper detect -i duplex.ifc --lod 1.0,3.2 -o report.json
+  ifcenvmapper detect -i duplex.ifc --grouper dbscan -o report.json     # após Fase 4
+  ifcenvmapper detect -i duplex.ifc --ground-truth data/ground-truth/duplex.csv
 ```
 
 **Formato do ground truth CSV:**
 ```
-GlobalId,IsFacade
-2O2Fr$t4X7Zf8NOew3FLne,true
-3xYmK9pQr2Wv7NLqZ1ABcd,false
+GlobalId,IsExterior,Note
+2O2Fr$t4X7Zf8NOew3FLne,true,
+3xYmK9pQr2Wv7NLqZ1ABcd,false,
+4D5eF1ABcdE2ghIJ3KLmnP,unknown,IfcSlab (auto)
 ```
+
+`IsExterior` aceita `true` / `false` / `unknown` (esta última quando o IFC não declara o pset). `Note` é opcional — `GroundTruthGenerator.GenerateFromIfc` usa para indicar registros auto-gerados (`<IfcType> (auto)`).
 
 ---
 
 ## Modelos IFC Disponíveis
 
-Arquivos prontos para uso local (já copiados para `data/models/`):
-
-| Arquivo | Origem | Complexidade |
-|---|---|---|
-| `duplex.ifc` | voxelization_toolkit/tests/fixtures/ | Média — edifício residencial duplex |
-| `duplex_wall.ifc` | voxelization_toolkit/tests/fixtures/ | Baixa — somente paredes |
-| `schependom_foundation.ifc` | voxelization_toolkit/tests/fixtures/ | Baixa — fundações |
-| `demo2.ifc` | voxelization_toolkit/tests/fixtures/ | A verificar |
-| `covering.ifc` | voxelization_toolkit/tests/fixtures/ | A verificar |
-
-**Próximo passo em datasets:** identificar modelos IFC públicos mais completos (buildingSMART Sample Models, BIMData R&D, OpenIFC Auckland, IFCNet RWTH Aachen).
+Modelos atuais em `data/models/` (5 arquivos vindos do voxelization_toolkit/tests/fixtures: `duplex`, `duplex_wall`, `schependom_foundation`, `demo2`, `covering`). A seleção final dos 5–8 modelos para experimentos será feita em P4.2 a partir de candidatos do BIMData R&D, OpenIFC Auckland, IFCNet RWTH Aachen e Purdue BIM Dataset — ver `00_Manuais_e_Referencias/datasets-ifc.md` para o catálogo completo, critérios de seleção e tabela de modelos selecionados (a preencher).
 
 ---
 
 ## Fases de Desenvolvimento
 
-### Fase 0 — ✅ Spike: carregamento e triangulação (concluída)
+### Fase 0 — ✅ Spike: carregamento e triangulação (17/abr/2026 · 1 dia)
 **Meta:** parsear um arquivo IFC real com xBIM e extrair geometria.
-**Critério de sucesso:** ✅ carregar `duplex.ifc` (157 elementos) e produzir `BuildingElement` com `DMesh3` não-vazia.
-
-- [x] Solução `.slnx` com os 6 projetos e estrutura de pastas
-- [x] Pacotes NuGet básicos (Xbim.Essentials, Xbim.Geometry, geometry4Sharp)
-- [x] `Program.cs` mínimo: abre IFC, itera elementos, loga tipos + GlobalId
-- [x] `XbimModelLoader.Load()` v0: `IReadOnlyList<BuildingElement>` via `Xbim3DModelContext`
-- [x] `Xbim3DModelContext.MaxThreads = 1` (workaround OCCT thread-unsafe)
-
-**Saída:** `src/IfcEnvelopeMapper.Cli/Program.cs` imprime `{IfcType} {GlobalId} tris={N}` para 157 elementos.
+**Entrega:** `XbimModelLoader.Load()` v0 carrega `duplex.ifc` (157 elementos) e produz `Element` com `DMesh3` não-vazia. `Xbim3DModelContext.MaxThreads = 1` (workaround OCCT). Solução `.slnx`, pacotes NuGet básicos (Xbim.Essentials/Geometry, geometry4Sharp), CLI mínimo.
 
 ---
 
-### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold ✅ (concluída — abr/2026)
-**Meta:** absorver ADRs 02-17 no código e estabelecer infraestrutura de testes + debug geométrico antes de qualquer algoritmo novo.
-**Critério de sucesso:** ✅ 34 testes unitários no CI + 2 integração local; loader retorna `ModelLoadResult(Elements, Groups)`; `GeometryDebug` compila em Debug e é eliminado em Release.
-
-**Domínio (Core):**
-- [x] `BuildingElementContext` (record struct, ADR-08)
-- [x] `BuildingElement` anêmico (required init, IEquatable, ADR-08 + ADR-11)
-- [x] `BuildingElementGroup` (ADR-11)
-- [x] `ModelLoadResult` (record)
-- [x] `Face` com `Element + TriangleIds + FittedPlane` (ADR-04)
-- [x] `Envelope`, `Facade` (Surface/)
-- [x] `DetectionResult`, `ElementClassification`
-
-**Interfaces (Core — Loading/Detection/Grouping):**
-- [x] `Loading/IModelLoader.cs` retornando `ModelLoadResult`
-- [x] `Loading/IElementFilter.cs` + `Loading/DefaultElementFilter.cs` (ADR-05)
-- [x] `Detection/IDetectionStrategy.cs` — assinatura limpa: `Detect(IReadOnlyList<BuildingElement>)`
-- [x] `Detection/IFaceExtractor.cs` — `BuildingElement → Face[]` via PCA coplanar
-- [x] `Grouping/IFacadeGrouper.cs` — assinatura limpa: `Group(Envelope)`
-
-**Debug (Geometry) — ADR-17:**
-- [x] `GeometryDebug` (#if DEBUG) em `IfcEnvelopeMapper.Geometry/Debug/` — 10 métodos de primitivas geométricas (`Mesh`, `Triangles`, `Voxels`, `Points`, `Line`, `Lines`, `Box`, `Plane`, `Sphere`, `Normal`)
-- [x] Projeto `IfcEnvelopeMapper.Debug/` — placeholder para utilitários de serialização futura
-
-**Loader (Ifc):**
-- [x] `XbimModelLoader` v1: split Elements/Groups, filtro injetado, error handling tipado
-- [x] `IIfcProductResolver` + `XbimIfcProductResolver` (ADR-10)
-- [x] Descarte de Elements sem geometria (TriangleCount == 0)
-
-**Testes:**
-- [x] `tests/IfcEnvelopeMapper.Tests/` scaffold (xUnit + FluentAssertions)
-- [x] `BuildingElementTests`, `BuildingElementGroupTests`, `FaceTests`
-- [x] `XbimModelLoaderTests` (integração com `duplex.ifc`, Category=Integration)
-
-**Infra:**
-- [x] `.github/workflows/build.yml` — PRs para main, ubuntu-latest, exclui Category=Integration
-- [x] Error handling tipado: `IfcLoadException`, `IfcGeometryException`
-- [x] `.gitignore` ajustado
+### Fase 1 — P1: Modelo refinado + testes-base + CI + Debug scaffold ✅ (17 → 19/abr/2026 · 3 dias)
+**Meta:** absorver ADRs 02–17 no código e estabelecer infraestrutura de testes + debug geométrico antes de qualquer algoritmo novo.
+**Entrega:** loader retorna `ModelLoadResult(Elements, Groups)` com filtro injetado e error handling tipado (`IfcLoadException`, `IfcGeometryException`). Domínio Core completo: `Element` (anêmico, ADR-08+11 — depois revisado em P4.1), `ElementGroup` (ADR-11 original — eliminado em P4.1, ver ADR atualizado), `Face/Envelope/Facade` (ADR-04), `DetectionResult/ElementClassification`. Interfaces de pipeline em Loading/Detection/Grouping; `XbimIfcProductResolver` (ADR-10); `GeometryDebug` scaffold com 10 métodos de primitivas (ADR-17). 34 testes unitários no CI (ubuntu-latest) + 2 integração local; CI GitHub Actions configurado.
 
 ---
 
-### Fase 2 — P2: Validação da detecção + debug visual ✅ (concluída — abr/2026, adiantada)
+### Fase 2 — P2: Validação da detecção + debug visual ✅ (19 → 24/abr/2026 · 5 dias)
 
 **Meta:** Pipeline de detecção validado quantitativamente e inspecionável visualmente no debug-viewer.
 **Referência canônica:** van der Vaart (2022) — IFC_BuildingEnvExtractor. Código-fonte em `Ferramentas/BuildingEnvExtractor/`.
-**Critério de sucesso:** ✅ contagens TP/FP/FN/TN + Precision/Recall reportadas para `duplex.ifc` via `EvaluationPipeline` — **stage gate para P4.3 e P5** liberado; P4.1 e P4.2 podem iniciar independentemente do gate; voxels inspecionáveis no debug-viewer por fase (rasterize → exterior → interior → void). Escolha metodológica: avaliação por contagem (estilo van der Vaart 2022) + Precision/Recall (Ying 2022); F1 e Kappa foram descartados por não aparecerem nas referências canônicas (ver ADR-12 nota).
+**Entrega:** `VoxelFloodFillStrategy : IDetectionStrategy` (3 fases + `FillGaps`, ADR-14; `IDetectionStrategy` renomeado para `IEnvelopeDetector` em P4.1) + `PcaFaceExtractor : IFaceExtractor` (`OrthogonalPlaneFit3`); SAT triângulo-AABB próprio (Akenine-Möller 1997, `g4.IntrTriangle3Box3` ausente). Operações geométricas refatoradas como extension methods em `Core/Extensions/` (commit `f179d26`). Validação quantitativa: TP/FP/FN/TN + Precision/Recall via `EvaluationPipeline` em `duplex.ifc` (escolha metodológica: contagem estilo van der Vaart 2022 + Precision/Recall estilo Ying 2022; F1/Kappa descartados — ADR-12). Determinismo: ordenação estável por `GlobalId` com `StringComparer.Ordinal`.
 
-**Detecção (Stage 1) — P2:**
-- [x] Operações geométricas — refatoradas como extension methods em `Core/Extensions/` (commit `f179d26`); `GeometricOps` estático foi descartado
-- [x] `VoxelGrid3D` — grade 3D com estado por voxel + provenance de ocupantes; SAT triângulo-AABB próprio (Akenine-Möller 1997 — `g4.IntrTriangle3Box3` ausente em geometry4sharp)
-- [x] `PcaFaceExtractor : IFaceExtractor` — agrupamento por normal + distância + fit PCA via `OrthogonalPlaneFit3`
-- [x] `VoxelFloodFillStrategy : IDetectionStrategy` — 3 fases (`GrowExterior` → `GrowInterior` → `GrowVoid`) + `FillGaps` (ADR-14); `PcaFaceExtractor` integrado para faces de elementos exteriores
-- [x] **Instrumentação de debug** (ADR-17): `GeometryDebug.Voxels()` por fase (occupied/exterior/interior) + `GeometryDebug.Element()` por elemento classificado — integrados em `VoxelFloodFillStrategy`
-- [x] `DetectionResult` (Envelope + ElementClassification[]) — concluído em P1
-- [x] Determinismo: ordenação estável por `GlobalId` com `StringComparer.Ordinal` em `VoxelFloodFillStrategy`; sem fontes de aleatoriedade no pipeline atual
+**Debug (ADR-17, entregue divergindo do plano original):** `DebugSession` mantém estado e serve GLB via HTTP server em processo helper OS separado (commit `3148c34`) — em vez de `Flush()` para `%TEMP%`. `tools/debug-viewer/` modular (HTML + three.js, 6 arquivos), auto-start via `dotnet run`, picking voxel+elemento. Bloco de atualização em ADR-17.
 
-**Debug (Geometry) — ADR-17:**
-- [x] Arquitetura de serialização — entregue **diferente do plano original**: em vez de `GeometryDebug.Flush()` escrever glTF em `%TEMP%` com viewer fazendo polling, `DebugSession` mantém o estado e serve um GLB via HTTP server em processo helper OS separado (commit `3148c34`); viewer faz polling do endpoint 5×/s. Ver bloco de atualização em ADR-17.
-- [x] `Voxels()` + `VoxelsShape` adicionados após integração do `feat/phase2-voxel`
-- [x] `tools/debug-viewer/` — HTML + three.js modular (6 arquivos: `index.html` + `js/main.js`, `renderer.js`, `layers.js`, `materials.js`, `picking.js`); auto-start via `dotnet run` (commit `dfc2c2a`); picking por voxel+elemento (commit `f09b7f9`)
+**Stage gate para P4 e P6.3** liberado; P6.1 e P6.2 (LoDs 0.x e 1.x) podem iniciar independentemente do gate.
 
-**Validação quantitativa (Cli) — P2:**
-- [x] Smoke test: `detect duplex.ifc` → console com contagem de elementos exterior/interior + TP/FP/FN/TN + Precision/Recall (`Program.cs`)
-- [x] CSV ground-truth loader + contagens TP/FP/FN/TN + Precision/Recall (`Core/Pipeline/Evaluation/`: `GroundTruthCsvReader`, `DetectionCounts`, `MetricsCalculator`, `EvaluationResult`)
-- [x] `EvaluationPipeline` — orquestrador IFC+GT → `EvaluationResult` (`Ifc/Evaluation/`)
-- [x] `GroundTruthGenerator` — utilitário de síntese (`Ifc/Evaluation/`)
-- [x] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics — configurado em `Program.cs` e propagado para `XbimServices`
-
-**Marco paralelo — Spike Viewer: cancelado.**
-Blazor Server + three.js interop foi planejado para validar viabilidade do Viewer MVP de P6. O debug-viewer modular entregue em P2 (HTTP server + three.js + picking por elemento/voxel) já cobre o caso de uso "carregar mesh + render + click → GlobalId", tornando o spike redundante. A decisão de absorção do Viewer MVP pelo debug-viewer, antes prevista para Fase 5 (ADR-07 revisado + ADR-16), pode ser antecipada quando P6 for planejado em detalhe.
+**Marco paralelo — Spike Viewer Blazor: cancelado.** Debug-viewer já cobre "carregar mesh + render + click → GlobalId"; absorção do Viewer MVP fica para Fase 7 (ADR-07 × ADR-17).
 
 ---
 
-### Fase 3 — P3: RayCasting baseline + JSON + BCF (01/jul → 05/ago/2026) · 5 semanas
+### Fase 3 — P3: RayCasting baseline + JSON + BCF ✅ (25 → 26/abr/2026 · 2 dias)
 
-**Meta:** comparação Voxel vs RayCasting tabelada (contagens + Precision/Recall); output JSON e BCF mínimo operacionais.
-**Critério de sucesso:** tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) em ≥ 2 modelos; `detect duplex.ifc` → `report.json` + `report.bcf` mínimo.
-**Nota:** julho mais lento (Etapa 2 — 16/jun–07/jul); priorizar P3.0 + início de P3.1 nesse período.
+**Meta:** comparação Voxel vs RayCasting tabelada; output JSON e BCF mínimo operacionais.
+**Entrega:** `RayCastingStrategy : IDetectionStrategy` (Ying 2022, ADR-14; `IDetectionStrategy` renomeado para `IEnvelopeDetector` em P4.1) — BVH global via `g4.DMeshAABBTree3` (ADR-13) + mapa de ownership por triângulo para auto-hit; `GeometryDebug.Line(...)` para raios (ADR-17). Ablation em `duplex.ifc` (Voxel P=0.849/R=0.918 vs RayCasting P=0.568/R=0.939) e `demo2.ifc` confirma tradeoff precision×recall da literatura. `DegradedFixtureTests` (enclosure 6 paredes ± gap) documenta leakage volumétrico do voxel × falha por face do raycast. Tabela comparativa em `data/results/strategy-comparison.md` (gitignored) regenerada por `StrategyComparisonTests`.
 
-**P3.0 — Infra (1 semana)**
-- [ ] `ILodGenerator` interface + `LodOutput` record + `LodRegistry`
-- [ ] `System.CommandLine`: flags `--lod`, `--strategy`, `--output`, `--format` (§ CLI v2)
-- [ ] `ILogger<T>` (Microsoft.Extensions.Logging) para diagnostics
-
-**P3.1 — RayCasting baseline (2 semanas)**
-Ref: Ying et al. (2022); ADR-14.
-- [x] `RayCastingStrategy : IDetectionStrategy` — BVH via `g4.DMeshAABBTree3` (ADR-13); chama `GeometryDebug.Line(...)` para raios hit/escape (ADR-17)
-- [x] Testes unitários
-- [x] Comparação em fixtures (inclui fixture degradada com gaps para validar a escolha de Voxel como primária)
-- [x] Tabela comparativa Voxel vs RayCasting (TP/FP/FN/TN + Precision/Recall) para a dissertação
-
-**Atualização (2026-04-26) — P3.1 fechada.** `RayCastingStrategy` (Ying 2022) entregue com BVH global via `g4.DMeshAABBTree3` e mapa de ownership por triângulo para auto-hit. Ablation contra `VoxelFloodFillStrategy` em `duplex.ifc` (Voxel P=0.849/R=0.918 vs RayCasting P=0.568/R=0.939 — tradeoff precision × recall da literatura confirmado) e `demo2.ifc` (raycast apenas; voxel falha por extensão de bbox em coordenadas georreferenciadas, fora do escopo P3.1). Fixture degradada sintética em `DegradedFixtureTests` (enclosure de 6 paredes ± gap) documenta leakage volumétrico do voxel × falha por face do raycast. Tabela comparativa em `data/results/strategy-comparison.md` (gitignored) regenerada por `StrategyComparisonTests` em cada `dotnet test`.
-
-**P3.2 — JSON + BCF mínimo (2 semanas)**
-Ref: ADR-06 (BCF); ADR-15 (LoD output).
-- [ ] `ReportBuilder` + `JsonReportWriter` — usa `ILodGenerator` por `--lod`; default `3.2`
-- [ ] `DebugVoxelCommand` (subcomando `debug-voxel`) — exporta voxels coloridos por estado
-- [ ] `BcfWriter` — escopo mínimo: tópicos + viewpoints + GlobalId (ADR-06)
-- [ ] Testes unitários
+**Output:** `JsonReportWriter` (PR #16, schema **v1** — sem `facades`/`aggregates`); `BcfWriter` (PR #19, BCF 2.1 — um tópico por elemento exterior, viewpoint via `Components/Selection/Component@IfcGuid`); CLI `--strategy` + `--output` com despacho por extensão (`.json`/`.bcf`/`.bcfzip`); `ILogger<T>` ambient via `AppLog`. 168/168 testes verdes.
 
 > RayCasting é baseline de comparação, não fallback de produção (ADR-14). Se Voxel falhar em fixtures críticos, a resposta é calibrar Voxel, não trocar estratégia.
 
 ---
 
-### Fase 4 — P4: LoDs 0.x + 1.x + 2.x (06/ago → 03/set/2026) · 4 semanas
+### Fase 4 — P4: Domain refactor + IfcInspector + DbscanFacadeGrouper (27/abr → 19/jul/2026) · 12 semanas
 
-**Meta:** espectro de representações geométricas do modelo disponível via `--lod`.
-**Critério de sucesso:** LoDs 0.0, 0.2, 1.0, 1.2, 2.2 selecionáveis via `--lod`; testes unitários por gerador.
-
-**P4.1 — LoD 0.x: Footprints 2D (2 semanas)**
-Ref: Biljecki et al. (2016) — CityGML LoD framework; ADR-15.
-- [ ] `Lod00FootprintXYGenerator` — projeção XY via `NetTopologySuite` (`STRtree` 2D + `UnaryUnionOp`); ADR-13
-- [ ] `Lod02StoreyFootprintsGenerator` — footprints por `IfcBuildingStorey` via `IfcRelContainedInSpatialStructure`
-- [ ] Testes unitários
-
-**P4.2 — LoD 1.x: Blocos extrudados (1 semana)**
-Ref: Biljecki et al. (2016); ADR-15.
-- [ ] `Lod10ExtrudedBboxGenerator` — bloco extrudado do AABB global do modelo
-- [ ] `Lod12StoreyBlocksGenerator` — bloco extrudado por pavimento
-- [ ] Testes unitários
-
-**P4.3 — LoD 2.x: Superfícies detalhadas (1 semana)**
-Ref: Biljecki et al. (2016); ADR-15.
-- [ ] `Lod22DetailedRoofWallsStoreysGenerator` — cobertura + paredes exteriores + lajes por pavimento
-- [ ] Testes unitários
+**Meta agregada:** infraestrutura de domínio madura (P4.1 ✅) + ferramenta de inspeção que permite escolha informada dos modelos experimentais (P4.2) + `Facade[]` completo via DBSCAN sobre esfera de Gauss (P4.3).
 
 ---
 
-### Fase 5 — P5: Agrupamento em fachadas — DbscanFacadeGrouper (04/set → 29/out/2026) · 8 semanas
+**P4.1 — Domain refactor ✅ (27/abr/2026 · 1 dia)**
+
+**Meta:** Capability interfaces + Element holding `IIfcProduct` direto, preparando o terreno para o `IfcInspector` (P4.2) e dando bbox barato sem materializar mesh.
+**Entrega:** capability interfaces (`IIfcEntity`, `IBoxEntity`, `IMeshEntity` em `Core/Domain/Interfaces/`; `IProductEntity` em `Ifc/Domain/Interfaces/`) — métodos (`GetMesh()`, `GetBoundingBox()`) sinalizam custo lazy. `Element` em `Ifc/Domain/` implementa todas + `IEquatable<Element>` direto (sem base abstrata). `IfcProductContext` (record struct com `IIfcProduct/Site/Building/Storey`) substitui `BuildingElementContext`. Composites são `Element` com `Children` populado (sem classe `ElementGroup`). `ModelLoadResult : IDisposable` mantém `IfcStore` aberto enquanto closures lazy materializam mesh/bbox sob demanda. Pipeline migrou `Core → Engine` (Engine passa a referenciar `Ifc`); `Strategies/` virou `Pipeline/Detection/`; `Visualization/` virou `Debug/{Api,Serialization}/`; `Bcf/` virou `BcfReport/`; `Reporting/` virou `JsonReport/`; `Cli/Program.cs` extrai `Commands/DetectCommand.cs`. `IDetectionStrategy` renomeado para `IEnvelopeDetector`; `DefaultElementFilter` → `ElementFilter`; `BcfReport` (classe) → `BcfPackage`. Testes: `IfcTestBase` na raiz centraliza carga + cache de `ModelLoadResult` por (test class, IFC path); helpers de path (`FindModel`, `GroundTruthPath`, `ResultsPath`) merged in. 89 unit tests + 10 integration tests verdes.
+
+---
+
+**P4.2 — IfcInspector + seleção de modelos (04/mai → 31/mai/2026 · 4 semanas)**
+
+**Meta:** Ferramenta de inspeção rápida (sem geometria triangulada para Fase A) e candidatos a átrio identificados, permitindo selecionar 5–8 modelos finais para os experimentos.
+**Critério de sucesso:** `inspect-all` em `data/models/candidates/` produz CSV agregado com flags de candidato a átrio; tabela "Modelos Selecionados" em `00_Manuais_e_Referencias/datasets-ifc.md` preenchida com 5–8 finais cobrindo tipologias diversas + ≥1 átrio coberto + ≥1 pátio aberto.
+
+**P4.2.a — Domínio espacial + metadata loader (1 semana)**
+- [ ] `Space` em `Ifc/Domain/Space.cs` (Element subclass com `LongName` + `NetVolumeM3` lidos de `Pset_SpaceCommon`)
+- [ ] `Storey` já existe em `Ifc/Domain/Storey.cs` desde P4.1 — expandir com `Spaces[]` e `Elements[]` se necessário
+- [ ] `ModelMetadata` em `Ifc/Loading/` (schema, authoring tool, project name)
+- [ ] Estender `ModelLoadResult` com `Metadata` (atualizar ~6 call sites)
+- [ ] `XbimMetadataLoader.LoadMetadata(path)` — sem `Xbim3DModelContext`, retorna apenas metadados + contagens (~1–3s por modelo, ~10× mais rápido que o full Load)
+
+**P4.2.b — Camada de inspeção (`src/Ifc/Inspection/`) e CLI (`src/Cli/Commands/InspectCommand.cs`) — Fases A–E (2 semanas)**
+- [ ] `IfcInspector.cs` — orquestrador
+- [ ] **Fase A — Básico:** `BasicAnalyzer` (contagens por tipo, schema IFC, ferramenta de autoria, andares) — usa metadata loader
+- [ ] **Fase B — Spaces:** `SpaceAnalyzer` (top-N spaces por volume, candidatos a átrio por aspecto vertical `Z_extent / sqrt(footprint)` ≥ 1.5 + busca textual em `LongName` por keywords `atrium / átrio / courtyard / pátio / lobby / void / well`)
+- [ ] **Fase C — Batch:** `inspect-all` em diretório → CSV agregado (uma linha por arquivo, colunas chave: `file, schema, tool, walls, doors, windows, slabs, top_space_aspect, has_atrium_keyword, glass_roof_count, courtyard_count`)
+- [ ] **Fase D — Roofs:** `RoofAnalyzer` (count + materiais associados via `IfcRelAssociatesMaterial`, detecção de cobertura vítrea por keywords `glass / vidro / glazed / transparent`)
+- [ ] **Fase E — Footprint:** `FootprintAnalyzer` (projeção 2D de paredes externas, detecção de anéis interiores no concave hull para courtyards abertos via `NetTopologySuite`)
+- [ ] CLI subcommands: `inspect` (single file) + `inspect-all` (directory)
+
+**P4.2.c — Seleção dos modelos (1 semana)**
+- [ ] Rodar `inspect-all` nos 5 modelos atuais — validar saída
+- [ ] Baixar 10–15 candidatos do BIMData R&D (GitHub) + IFCNet (RWTH Aachen) + OpenIFC Auckland
+- [ ] Selecionar 5–8 finais (cobertura: tipologias diversas + ≥1 átrio coberto + ≥1 pátio aberto + ≥1 pilotis se possível)
+- [ ] Preencher tabela "Modelos Selecionados" em `00_Manuais_e_Referencias/datasets-ifc.md`
+
+---
+
+**P4.3 — DbscanFacadeGrouper (01/jun → 19/jul/2026 · 7 semanas)**
 
 **Meta:** `Facade[]` completo com DBSCAN + QuikGraph.
 **Pré-requisito:** Precision/Recall do Stage 1 aceitáveis — gate de P2 (thresholds calibrados após primeira medição; ver ADR-12). Calibrar DBSCAN antes de detecção confiável é desperdício.
@@ -1407,23 +1171,76 @@ Ref: Biljecki et al. (2016); ADR-15.
 
 - [ ] `DbscanFacadeGrouper : IFacadeGrouper` (DBSCAN sobre esfera de Gauss + QuikGraph para conectividade); chama `GeometryDebug.Points(...)` / `GeometryDebug.Lines(...)` internamente (ADR-17)
 - [ ] **Instrumentação de debug crítica** (ADR-17): normais da esfera de Gauss como `GeometryDebug.Points()`, arestas do grafo de adjacência como `GeometryDebug.Lines()`, fachadas finais como `GeometryDebug.Triangles()` coloridas por `facadeId`
-- [ ] Calibração empírica de ε e minPoints em fixtures — **usando debug-viewer para visualização** (Camada B de ADR-16)
+- [ ] Calibração empírica de ε e minPoints em fixtures — **usando debug-viewer para visualização** (Camada B de ADR-17)
 - [ ] Opção: pré-filtro via `g4.NormalHistogram` (ADR-13) se ruído justificar
 - [ ] Testes unitários do grouper + regressão por snapshot
+- [ ] Schema JSON v2: adicionar blocos `facades` + `aggregates` ao `JsonReportWriter`
 
 ---
 
-### Fase 6 — P6: LoD 3.x + 4.x (30/out → 04/dez/2026) · 5 semanas
+### Fase 5 — P5: *Hierarchical Voxel Flood-Fill* (contribuição original) (20/jul → 13/set/2026) · 8 semanas
 
-**Meta:** completar LoDs 3.x e 4.x com rastreabilidade por fachada.
-**Pré-requisito:** `Facade[]` entregue na Fase 5.
-**Critério de sucesso:** LoDs 3.x e 4.x geráveis via `--lod`; faces rastreadas ao elemento de origem com `GlobalId`.
+**Meta:** implementar a estratégia de voxelização hierárquica e comparar com as duas baselines (Uniforme, *Ray Casting*) em precisão, *recall* e tempo de execução.
+**Referência canônica:** van der Vaart (2022) para o *flood-fill* 3-fases; contribuição metodológica original para a hierarquia adaptativa e os critérios de refinamento.
+**Pré-requisito:** Fase 3 (baselines Voxel + *Ray Casting*) concluída. Fase 4.3 (DBSCAN) **não é dependência algorítmica** — HVFF é Stage 1 (detecção), independente do agrupamento; a sequência calendar P4 → P5 é por priorização (front-load da contribuição). *Ground truth* da Fase 8 (Avaliação Experimental, paralela) já disponível em ≥3 modelos.
+**Critério de sucesso:** (a) 3 estratégias rodam sobre os mesmos fixtures; (b) tabela com contagens TP/FP/FN/TN + Precisão/Recall + tempo de execução por estratégia × modelo; (c) análise por caso geométrico (poço de luz, *shaft* estreito) mostra onde cada estratégia falha ou acerta; (d) seção de Resultados da dissertação inclui a comparação 3-vias como figura principal da contribuição.
 
-**P6.1 — LoD 3.x** (Ref: Biljecki et al. 2016; van der Vaart 2022)
-- [ ] `Lod32SemanticShellGenerator` — consome `Facade[]` do DBSCAN; seção `facades` + WWR (ADR-15)
+**P5.1 — Estrutura hierárquica de voxels (3 semanas)**
+Ref: estruturas adaptativas (octree); ADR-13 (sem dependência externa).
+- [ ] `HierarchicalVoxelGrid` — octree com níveis `L0 → L1 → ... → Lmax`; célula-folha carrega o mesmo estado (`Unknown/Occupied/Exterior/Interior/Void`) e lista de ocupantes por `GlobalId` já usados em `VoxelGrid3D`
+- [ ] Critério de refinamento: célula na resolução `Li` refina para `Li+1` se `Occupied` **e** vizinhança contém mistura de estados (heurística inicial; calibrar empiricamente)
+- [ ] Testes unitários da estrutura de dados (`IsInBounds`, `Neighbors*`, `WorldToCell`, transição entre níveis)
+
+**P5.2 — `HierarchicalVoxelFloodFillStrategy` (3 semanas)**
+- [ ] `HierarchicalVoxelFloodFillStrategy : IEnvelopeDetector` — mesmo contrato de saída (`DetectionResult`)
+- [ ] Rasterização multi-nível: SAT triângulo-caixa reutiliza `Core/Extensions/AxisAlignedBox3dExtensions` (Fase 2); nenhuma matemática nova
+- [ ] *Flood-fill* atravessando níveis (propagação exterior desce nas folhas refinadas e sobe nas células grossas do espaço livre)
+- [ ] Instrumentação `GeometryDebug` por nível + por fase (ADR-17) — crítica para *debug* visual no viewer
+- [ ] Determinismo: ordenação estável por `GlobalId` na classificação final (mesma política de `VoxelFloodFillStrategy`)
+
+**P5.3 — Comparação 3-vias + escrita dos Resultados (2 semanas)**
+- [ ] `EvaluationPipeline` ampliado: executa 3 estratégias sobre o mesmo `ModelLoadResult`, compila tabela comparada
+- [ ] Cobertura dos casos geométricos chave: pelo menos 1 *fixture* com poço de luz aberto, 1 com *shaft* de instalações, 1 com átrio coberto (ver §Comportamento em casos geométricos chave)
+- [ ] Escrita da seção de Resultados: tabela 3-vias + discussão por caso + *ameaças à validade*
+- [ ] Figura principal da contribuição: lado-a-lado dos três *grids* finais em um modelo com poço de luz
+
+> Se a variante hierárquica **não** superar a uniforme em nenhuma métrica, a dissertação relata o resultado negativo e reforça o *flood-fill* uniforme como estado-da-arte prático — ainda é contribuição publicável (ablação rigorosa). Ver §Ameaças à validade.
+
+---
+
+### Fase 6 — P6: LoDs 0.x → 4.x (14/set → 15/nov/2026) · 9 semanas
+
+**Meta:** espectro completo de representações geométricas via `--lod`, do footprint 2D ao element-wise, com rastreabilidade preservada por `ElementProvenance` em todos os níveis (ADR-15).
+**Pré-requisito:** `Facade[]` entregue na Fase 4 (consumido a partir do LoD 3.x).
+**Critério de sucesso:** LoDs 0.0, 0.2, 1.0, 1.2, 2.2, 3.2, 4.0, 4.1, 4.2 selecionáveis via `--lod`; testes unitários por gerador.
+
+**P6.0 — Infra LoD (absorvido em P6.1)**
+- [ ] `ILodGenerator` interface + `LodOutput` record + `LodRegistry` (foundational scaffold; concretes seguem nas sub-fases abaixo)
+
+**P6.1 — LoD 0.x: Footprints 2D (2 semanas)**
+Ref: Biljecki et al. (2016) — CityGML LoD framework; ADR-15.
+- [ ] `Lod00FootprintXYGenerator` — projeção XY via `NetTopologySuite` (`STRtree` 2D + `UnaryUnionOp`); ADR-13
+- [ ] `Lod02StoreyFootprintsGenerator` — footprints por `IfcBuildingStorey` via `IfcRelContainedInSpatialStructure`
+- [ ] Testes unitários
+
+**P6.2 — LoD 1.x: Blocos extrudados (1 semana)**
+Ref: Biljecki et al. (2016); ADR-15.
+- [ ] `Lod10ExtrudedBboxGenerator` — bloco extrudado do AABB global do modelo
+- [ ] `Lod12StoreyBlocksGenerator` — bloco extrudado por pavimento
+- [ ] Testes unitários
+
+**P6.3 — LoD 2.x: Superfícies detalhadas (1 semana)**
+Ref: Biljecki et al. (2016); ADR-15.
+- [ ] `Lod22DetailedRoofWallsStoreysGenerator` — cobertura + paredes exteriores + lajes por pavimento
+- [ ] Testes unitários
+
+**P6.4 — LoD 3.x: Semantic shell (3 semanas)**
+Ref: Biljecki et al. (2016); van der Vaart (2022); ADR-15.
+- [ ] `Lod32SemanticShellGenerator` — consome `Facade[]` da Fase 4.3 (DBSCAN); seção `facades` + WWR
 - [ ] Testes unitários Lod32
 
-**P6.2 — LoD 4.x** (stretch goal)
+**P6.5 — LoD 4.x: Element-wise (stretch goal, 2 semanas)**
+Ref: Biljecki et al. (2016); ADR-15.
 - [ ] `Lod40ElementWiseGenerator` — todos os elementos 1:1
 - [ ] `Lod41ExteriorElementsGenerator` — só os com face exterior
 - [ ] `Lod42MergedSurfacesGenerator` — faces coplanares fundidas
@@ -1431,14 +1248,14 @@ Ref: Biljecki et al. (2016); ADR-15.
 
 ---
 
-### Fase 7 — P7: Viewer MVP OU absorção pelo debug-viewer (05/dez/2026 → 16/jan/2027) · 6 semanas
+### Fase 7 — P7: Viewer MVP OU absorção pelo debug-viewer (16/nov → 27/dez/2026) · 6 semanas
 
-**Meta:** decisão sobre Viewer (ADR-07 × ADR-16) + implementação.
+**Meta:** decisão sobre Viewer (ADR-07 × ADR-17) + implementação.
 **Critério de sucesso:** usuário especialista consegue abrir artefatos e navegar resultados.
 
-**Decisão sobre Viewer (ADR-07 × ADR-16):**
+**Decisão sobre Viewer (ADR-07 × ADR-17):**
 Nesta fase, avaliar o estado do `tools/debug-viewer/` (entregue em Fase 3):
-- Se UX estiver amigável a especialistas AEC → **absorver** Viewer pelo debug-viewer; remover projeto `IfcEnvelopeMapper.Viewer/` do plano; energia concentra em polimento do debug-viewer.
+- Se UX do debug-viewer estiver amigável a especialistas AEC → **absorver** o papel do Viewer pelo debug-viewer; descartar criação do projeto Viewer Blazor; energia concentra em polimento do debug-viewer.
 - Se debug-viewer for adequado só para dev (UI técnica) → **Viewer MVP Blazor segue**:
     - [ ] `Components/`: render 3D por elemento colorido por fachada (consome LoD 3.2)
     - [ ] Filtro exterior/interior, inspeção (GlobalId, IfcType, `IIfcProductResolver`)
@@ -1450,37 +1267,7 @@ Nesta fase, avaliar o estado do `tools/debug-viewer/` (entregue em Fase 3):
 
 ---
 
-### Fase 8 — *Hierarchical Voxel Flood-Fill* (contribuição original) (17/jan → 13/mar/2027) · 8 semanas
-
-**Meta:** implementar a estratégia de voxelização hierárquica e comparar com as duas baselines (Uniforme, *Ray Casting*) em precisão, *recall* e tempo de execução.
-**Referência canônica:** van der Vaart (2022) para o *flood-fill* 3-fases; contribuição metodológica original para a hierarquia adaptativa e os critérios de refinamento.
-**Pré-requisito:** Fases 3 (baseline *Ray Casting*) e 5 (agrupamento de fachadas) concluídas. *Ground truth* da Fase 6 (ver numeração renumerada abaixo) já disponível em ≥3 modelos.
-**Critério de sucesso:** (a) 3 estratégias rodam sobre os mesmos fixtures; (b) tabela com contagens TP/FP/FN/TN + Precisão/Recall + tempo de execução por estratégia × modelo; (c) análise por caso geométrico (poço de luz, *shaft* estreito) mostra onde cada estratégia falha ou acerta; (d) seção de Resultados da dissertação inclui a comparação 3-vias como figura principal da contribuição.
-
-**P8.1 — Estrutura hierárquica de voxels (3 semanas)**
-Ref: estruturas adaptativas (octree); ADR-13 (sem dependência externa).
-- [ ] `HierarchicalVoxelGrid` — octree com níveis `L0 → L1 → ... → Lmax`; célula-folha carrega o mesmo estado (`Unknown/Occupied/Exterior/Interior/Void`) e lista de ocupantes por `GlobalId` já usados em `VoxelGrid3D`
-- [ ] Critério de refinamento: célula na resolução `Li` refina para `Li+1` se `Occupied` **e** vizinhança contém mistura de estados (heurística inicial; calibrar empiricamente)
-- [ ] Testes unitários da estrutura de dados (`IsInBounds`, `Neighbors*`, `WorldToCell`, transição entre níveis)
-
-**P8.2 — `HierarchicalVoxelFloodFillStrategy` (3 semanas)**
-- [ ] `HierarchicalVoxelFloodFillStrategy : IDetectionStrategy` — mesmo contrato de saída (`DetectionResult`)
-- [ ] Rasterização multi-nível: SAT triângulo-caixa reutiliza `Core/Extensions/AxisAlignedBox3dExtensions` (Fase 2); nenhuma matemática nova
-- [ ] *Flood-fill* atravessando níveis (propagação exterior desce nas folhas refinadas e sobe nas células grossas do espaço livre)
-- [ ] Instrumentação `GeometryDebug` por nível + por fase (ADR-17) — crítica para *debug* visual no viewer
-- [ ] Determinismo: ordenação estável por `GlobalId` na classificação final (mesma política de `VoxelFloodFillStrategy`)
-
-**P8.3 — Comparação 3-vias + escrita dos Resultados (2 semanas)**
-- [ ] `EvaluationPipeline` ampliado: executa 3 estratégias sobre o mesmo `ModelLoadResult`, compila tabela comparada
-- [ ] Cobertura dos casos geométricos chave: pelo menos 1 *fixture* com poço de luz aberto, 1 com *shaft* de instalações, 1 com átrio coberto (ver §Comportamento em casos geométricos chave)
-- [ ] Escrita da seção de Resultados: tabela 3-vias + discussão por caso + *ameaças à validade*
-- [ ] Figura principal da contribuição: lado-a-lado dos três *grids* finais em um modelo com poço de luz
-
-> Se a variante hierárquica **não** superar a uniforme em nenhuma métrica, a dissertação relata o resultado negativo e reforça o *flood-fill* uniforme como estado-da-arte prático — ainda é contribuição publicável (ablação rigorosa). Ver §Ameaças à validade.
-
----
-
-### Fase 9 — *Ground Truth* & Avaliação Experimental (out/2026 – jan/2027, paralela) *(renumerada — era Fase 8)*
+### Fase 8 — *Ground Truth* & Avaliação Experimental (mai – nov/2026, paralela)
 **Meta:** validar o método contra rótulos manuais de especialistas.
 **Critério de sucesso:** tabela com contagens TP/FP/FN/TN + Precision/Recall por modelo e por tipologia; ≥75% de concordância simples (*percent agreement*) entre especialistas na rotulação.
 
@@ -1492,11 +1279,11 @@ Ref: estruturas adaptativas (octree); ADR-13 (sem dependência externa).
 
 ---
 
-### Fase 10 — Entrega (mar–abr/2027) *(renumerada — era Fase 9)*
+### Fase 9 — Entrega (mar–abr/2027)
 **Meta:** finalizar documentação, testes de usabilidade e publicação.
 **Critério de sucesso:** defesa da Etapa 4 em abr/2027; repositório público e reproduzível.
 
-- [ ] Testes de usabilidade do Viewer com ≥3 especialistas AEC
+- [ ] Testes de usabilidade do viewer com ≥3 especialistas AEC (debug-viewer ou MVP Blazor, conforme decidido em P7)
 - [ ] README final (instalação, uso, exemplos, *workaround* Google Drive)
 - [ ] Publicação no GitHub como repositório público
 - [ ] Artefatos da dissertação: tabelas de resultado, figuras, links para reprodução
@@ -1511,7 +1298,7 @@ A ferramenta é bem-sucedida academicamente quando:
 
 1. **O método funciona de ponta a ponta** em modelos IFC reais de diferentes tipologias
 2. **Resultados são mensuráveis**: Precisão e Recall calculados contra ground truth rotulado por especialistas
-3. **Rastreabilidade preservada**: cada face detectada e cada fachada agrupada são rastreáveis ao `BuildingElement` de origem
+3. **Rastreabilidade preservada**: cada face detectada e cada fachada agrupada são rastreáveis ao `Element` de origem
 4. **Aplicabilidade demonstrada**: WWR por fachada calculado a partir dos resultados de detecção
 5. **O resultado é reproduzível**: qualquer pessoa com .NET 8 pode rodar `dotnet run` e obter os mesmos números
 

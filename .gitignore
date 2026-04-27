@@ -48,7 +48,7 @@ TestResults/
 *.trx
 
 # Test data — large binaries, download per data/README.md
-data/models/*.ifc
+data/models/**/*.ifc
 data/results/
 data/ground-truth/*.csv
 
@@ -65,5 +65,5 @@ data/results/**/*.bcf
 Thumbs.db
 desktop.ini
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code session metadata (settings, locks, plans, transient state)
+.claude/

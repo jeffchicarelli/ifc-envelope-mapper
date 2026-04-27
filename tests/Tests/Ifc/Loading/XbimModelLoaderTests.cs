@@ -1,37 +1,18 @@
 using IfcEnvelopeMapper.Ifc.Loading;
 
+
 namespace IfcEnvelopeMapper.Tests.Ifc.Loading;
 
 [Trait("Category", "Integration")]
-public sealed class XbimModelLoaderTests
+public sealed class XbimModelLoaderTests : IfcTestBase
 {
-    private static string FindDuplex()
-    {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "data", "models", "duplex.ifc");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("duplex.ifc not found in any parent directory");
-    }
+    public XbimModelLoaderTests() : base("duplex.ifc") { }
 
     [Fact]
     public void Load_Duplex_ReturnsElements()
     {
-        var loader = new XbimModelLoader();
-        var path = FindDuplex();
-
-        var result = loader.Load(path);
-
-        result.Elements.Should().NotBeEmpty();
-        result.Elements.Should().AllSatisfy(e =>
+        Model.Elements.Should().NotBeEmpty();
+        Model.Elements.Should().AllSatisfy(e =>
         {
             e.GlobalId.Should().NotBeNullOrEmpty();
             e.IfcType.Should().NotBeNullOrEmpty();
@@ -41,13 +22,8 @@ public sealed class XbimModelLoaderTests
     [Fact]
     public void Load_Duplex_AllElementsHaveGeometry()
     {
-        var loader = new XbimModelLoader();
-        var path = FindDuplex();
-
-        var result = loader.Load(path);
-
-        result.Elements.Should().AllSatisfy(e =>
-            e.Mesh.TriangleCount.Should().BeGreaterThan(0));
+        Model.Elements.Should().AllSatisfy(e =>
+            e.GetMesh().TriangleCount.Should().BeGreaterThan(0));
     }
 
     [Fact]

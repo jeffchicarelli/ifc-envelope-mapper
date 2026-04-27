@@ -1,11 +1,11 @@
 using FluentAssertions.Execution;
-using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
-using IfcEnvelopeMapper.Tests.Fixtures;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Visualization;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -23,7 +23,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // Ground truth (data/ground-truth/demo2.csv) is auto-generated from demo2.ifc
 // IsExternal psets on first run by GroundTruthGenerator, then committed.
 [Trait("Category", "Integration")]
-public sealed class Demo2EvaluationTests : IClassFixture<Demo2ModelFixture>
+public sealed class Demo2EvaluationTests : IfcTestBase
 {
     // RayCasting golden counts on demo2 with defaults (numRays=8, jitterDeg=5°,
     // hitRatio=0.5, Random seed=42). 97 ground-truth records evaluable
@@ -37,20 +37,18 @@ public sealed class Demo2EvaluationTests : IClassFixture<Demo2ModelFixture>
     private const double RAYCAST_PRECISION_FLOOR = 0.65;
     private const double RAYCAST_RECALL_FLOOR    = 0.90;
 
-    private readonly Demo2ModelFixture _fixture;
-
-    public Demo2EvaluationTests(Demo2ModelFixture fixture) => _fixture = fixture;
+    public Demo2EvaluationTests() : base("demo2.ifc") { }
 
     [Fact]
     public void Pipeline_OnDemo2_RayCasting_ProducesExpectedCounts()
     {
         // Arrange
-        var gtPath   = TestPaths.GroundTruthPath("demo2.csv");
+        var gtPath   = GroundTruthPath("demo2.csv");
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
-        EmitDisagreementGlb(result, nameof(Pipeline_OnDemo2_RayCasting_ProducesExpectedCounts));
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        //EmitDisagreementGlb(result, nameof(Pipeline_OnDemo2_RayCasting_ProducesExpectedCounts));
 
         // Assert
         using var scope = new AssertionScope();
@@ -64,11 +62,11 @@ public sealed class Demo2EvaluationTests : IClassFixture<Demo2ModelFixture>
     public void Pipeline_OnDemo2_RayCasting_PrecisionRecallAboveFloor()
     {
         // Arrange
-        var gtPath   = TestPaths.GroundTruthPath("demo2.csv");
+        var gtPath   = GroundTruthPath("demo2.csv");
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
 
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(RAYCAST_PRECISION_FLOOR);
@@ -101,7 +99,7 @@ public sealed class Demo2EvaluationTests : IClassFixture<Demo2ModelFixture>
                 (true,  false) => "#ff0000",
                 (false, true)  => "#ff8800",
             };
-            GeometryDebug.Element(c.Element.Mesh, c.Element.GlobalId, c.Element.IfcType, color);
+            GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
         }
 #endif
     }

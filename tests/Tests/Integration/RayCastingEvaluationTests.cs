@@ -1,11 +1,11 @@
 using FluentAssertions.Execution;
-using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
-using IfcEnvelopeMapper.Tests.Fixtures;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Visualization;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -16,7 +16,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // vs ground truth — open `Path.GetTempPath() + RayCastingEvaluationTests_<name>.glb`
 // in any glTF viewer to see exactly which elements moved categories.
 [Trait("Category", "Integration")]
-public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
+public sealed class RayCastingEvaluationTests : IfcTestBase
 {
     // Golden counts captured from a clean run on duplex.ifc with RayCastingStrategy
     // defaults (numRays=8, jitterDeg=5°, hitRatio=0.5, Random seed=42).
@@ -33,20 +33,18 @@ public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
     private const double PRECISION_FLOOR = 0.50;
     private const double RECALL_FLOOR    = 0.90;
 
-    private readonly IfcModelFixture _fixture;
-
-    public RayCastingEvaluationTests(IfcModelFixture fixture) => _fixture = fixture;
+    public RayCastingEvaluationTests() : base("duplex.ifc") { }
 
     [Fact]
     public void Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts()
     {
         // Arrange
-        var gtPath   = ResolveGroundTruthPath();
+        var gtPath   = GroundTruthPath("duplex.csv");
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
-        EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts));
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        //EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts));
 
         // Assert — AssertionScope reports all four mismatches in one error so
         // baselining only takes one test run.
@@ -61,22 +59,15 @@ public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
     public void Pipeline_OnDuplex_RayCasting_PrecisionRecallAboveFloor()
     {
         // Arrange
-        var gtPath   = ResolveGroundTruthPath();
+        var gtPath   = GroundTruthPath("duplex.csv");
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
 
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(PRECISION_FLOOR);
         result.Counts.Recall.Should().BeGreaterThanOrEqualTo(RECALL_FLOOR);
-    }
-
-    private string ResolveGroundTruthPath()
-    {
-        // ifcPath = .../data/models/duplex.ifc → gtPath = .../data/ground-truth/duplex.csv
-        var dataDir = Path.GetDirectoryName(Path.GetDirectoryName(_fixture.IfcPath))!;
-        return Path.Combine(dataDir, "ground-truth", "duplex.csv");
     }
 
     private static void EmitDisagreementGlb(EvaluationResult result, string testName)
@@ -105,7 +96,7 @@ public sealed class RayCastingEvaluationTests : IClassFixture<IfcModelFixture>
                 (true,  false) => "#ff0000",
                 (false, true)  => "#ff8800",
             };
-            GeometryDebug.Element(c.Element.Mesh, c.Element.GlobalId, c.Element.IfcType, color);
+            GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
         }
 #endif
     }

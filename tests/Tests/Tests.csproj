@@ -9,6 +9,10 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Apply Tests.runsettings to every `dotnet test` invocation so
+         integration tests are skipped by default. A CLI filter overrides. -->
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)Tests.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>

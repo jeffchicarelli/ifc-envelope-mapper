@@ -1,9 +1,8 @@
 using System.Text;
-using IfcEnvelopeMapper.Core.Pipeline.Detection;
-using IfcEnvelopeMapper.Core.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
-using IfcEnvelopeMapper.Tests.Fixtures;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
+
 
 namespace IfcEnvelopeMapper.Tests.Integration;
 
@@ -14,33 +13,26 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // produce a stable artefact the dissertation can quote directly; re-run via
 // `dotnet test` to refresh.
 [Trait("Category", "Integration")]
-public sealed class StrategyComparisonTests
-    : IClassFixture<IfcModelFixture>, IClassFixture<Demo2ModelFixture>
+public sealed class StrategyComparisonTests : IfcTestBase
 {
     private const double VOXEL_SIZE = 0.25;
-
-    private readonly IfcModelFixture   _duplex;
-    private readonly Demo2ModelFixture _demo2;
-
-    public StrategyComparisonTests(IfcModelFixture duplex, Demo2ModelFixture demo2)
-    {
-        _duplex = duplex;
-        _demo2  = demo2;
-    }
 
     [Fact]
     public void GenerateComparisonTable()
     {
+        var duplex = LoadModel("duplex.ifc");
+        var demo2  = LoadModel("demo2.ifc");
+
         var rows = new List<Row>
         {
             EvaluatedRow("duplex", "Voxel",
-                _duplex.IfcPath,
-                TestPaths.GroundTruthPath("duplex.csv"),
+                FindModel("duplex.ifc"),
+                GroundTruthPath("duplex.csv"),
                 new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE)),
 
             EvaluatedRow("duplex", "RayCasting",
-                _duplex.IfcPath,
-                TestPaths.GroundTruthPath("duplex.csv"),
+                FindModel("duplex.ifc"),
+                GroundTruthPath("duplex.csv"),
                 new RayCastingStrategy()),
 
             // VoxelFloodFillStrategy on demo2 is intentionally not run: the IFC
@@ -51,13 +43,13 @@ public sealed class StrategyComparisonTests
                 "OOM on georeferenced bbox (extent > .NET array limit)"),
 
             EvaluatedRow("demo2", "RayCasting",
-                _demo2.IfcPath,
-                TestPaths.GroundTruthPath("demo2.csv"),
+                FindModel("demo2.ifc"),
+                GroundTruthPath("demo2.csv"),
                 new RayCastingStrategy()),
         };
 
         var markdown   = BuildMarkdown(rows);
-        var outputPath = TestPaths.ResultsPath("strategy-comparison.md");
+        var outputPath = ResultsPath("strategy-comparison.md");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         File.WriteAllText(outputPath, markdown);
     }
@@ -67,7 +59,7 @@ public sealed class StrategyComparisonTests
         string strategyLabel,
         string ifcPath,
         string gtPath,
-        IDetectionStrategy strategy)
+        IEnvelopeDetector strategy)
     {
         var result = EvaluationPipeline.EvaluateDetection(ifcPath, gtPath, strategy);
         return new Row(model, strategyLabel, result.Counts, SkipReason: null);
