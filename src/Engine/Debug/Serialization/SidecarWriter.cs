@@ -12,7 +12,7 @@ namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
 // trip on a mid-flight swap.
 //
 // Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op) and
-// derives its output path from <c>DebugSession.OutputPath</c> so per-flow
+// derives its output path from <c>Scene.OutputPath</c> so per-flow
 // AsyncLocal isolation gives each xunit test method its own sidecar file —
 // no cross-test races on the shared default `C:\temp` location.
 public static class SidecarWriter
@@ -59,7 +59,7 @@ public static class SidecarWriter
         // paths give each test its own sidecar file. e.g.
         //   GLB    : C:\temp\test-run-XYZ.glb
         //   sidecar: C:\temp\test-run-XYZ-occupants.json
-        var glbPath     = DebugSession.OutputPath;
+        var glbPath     = Scene.OutputPath;
         var dir         = Path.GetDirectoryName(glbPath) ?? @"C:\temp";
         var stem        = Path.GetFileNameWithoutExtension(glbPath);
         var sidecarPath = Path.Combine(dir, stem + "-occupants.json");
