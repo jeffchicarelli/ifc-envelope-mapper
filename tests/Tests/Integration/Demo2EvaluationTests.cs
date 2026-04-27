@@ -1,11 +1,10 @@
 using FluentAssertions.Execution;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Tests.Fixtures;
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Visualization;
+using IfcEnvelopeMapper.Engine.Debug;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -101,7 +100,7 @@ public sealed class Demo2EvaluationTests : IClassFixture<Demo2ModelFixture>
                 (true,  false) => "#ff0000",
                 (false, true)  => "#ff8800",
             };
-            GeometryDebug.Element(c.Element.Mesh, c.Element.GlobalId, c.Element.IfcType, color);
+            GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
         }
 #endif
     }

@@ -65,5 +65,5 @@ data/results/**/*.bcf
 Thumbs.db
 desktop.ini
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code session metadata (settings, locks, plans, transient state)
+.claude/

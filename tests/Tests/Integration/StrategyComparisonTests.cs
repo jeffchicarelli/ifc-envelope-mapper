@@ -1,8 +1,6 @@
 using System.Text;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Ifc.Evaluation;
 using IfcEnvelopeMapper.Tests.Fixtures;
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -67,7 +65,7 @@ public sealed class StrategyComparisonTests
         string strategyLabel,
         string ifcPath,
         string gtPath,
-        IDetectionStrategy strategy)
+        IEnvelopeDetector strategy)
     {
         var result = EvaluationPipeline.EvaluateDetection(ifcPath, gtPath, strategy);
         return new Row(model, strategyLabel, result.Counts, SkipReason: null);

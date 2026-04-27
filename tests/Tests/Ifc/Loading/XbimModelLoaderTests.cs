@@ -47,7 +47,7 @@ public sealed class XbimModelLoaderTests
         var result = loader.Load(path);
 
         result.Elements.Should().AllSatisfy(e =>
-            e.Mesh.TriangleCount.Should().BeGreaterThan(0));
+            e.GetMesh().TriangleCount.Should().BeGreaterThan(0));
     }
 
     [Fact]

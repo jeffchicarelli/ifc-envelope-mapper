@@ -1,11 +1,10 @@
 using System.CommandLine;
 using System.Diagnostics;
 using IfcEnvelopeMapper.Core.Diagnostics;
-using IfcEnvelopeMapper.Engine.Pipeline.Bcf;
+using IfcEnvelopeMapper.Engine.Pipeline.BcfReport;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
-using IfcEnvelopeMapper.Engine.Pipeline.Reporting;
-using IfcEnvelopeMapper.Engine.Strategies;
-using IfcEnvelopeMapper.Engine.Visualization;
+using IfcEnvelopeMapper.Engine.Pipeline.JsonReport;
+using IfcEnvelopeMapper.Engine.Debug;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
@@ -69,7 +68,7 @@ static void RunDetect(FileInfo input, double voxelSize, string strategy, FileInf
 {
     Console.WriteLine($"Opening: {input.FullName}");
 
-    IDetectionStrategy impl;
+    IEnvelopeDetector impl;
     StrategyConfig     config;
     switch (strategy)
     {

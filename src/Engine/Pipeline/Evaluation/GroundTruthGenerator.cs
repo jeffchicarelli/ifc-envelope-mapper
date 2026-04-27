@@ -1,8 +1,8 @@
-using IfcEnvelopeMapper.Core.Domain.Element;
+using IfcEnvelopeMapper.Ifc.Domain;
 using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
 
-namespace IfcEnvelopeMapper.Ifc.Evaluation;
+namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 
 public static class GroundTruthGenerator
 {
@@ -13,7 +13,7 @@ public static class GroundTruthGenerator
     public static int GenerateFromIfc(
         string ifcPath,
         string csvOutputPath,
-        IEnumerable<BuildingElement> loadedElements)
+        IEnumerable<Element> loadedElements)
     {
         var ifcTypeById = loadedElements.ToDictionary(
             e => e.GlobalId,

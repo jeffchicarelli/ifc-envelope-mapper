@@ -2,7 +2,7 @@ using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Ifc.Loading;
 
-namespace IfcEnvelopeMapper.Ifc.Evaluation;
+namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 
 /// <summary>
 /// End-to-end evaluation for a single IFC + ground-truth pair:
@@ -16,7 +16,7 @@ public static class EvaluationPipeline
     public static EvaluationResult EvaluateDetection(
         string ifcPath,
         string groundTruthPath,
-        IDetectionStrategy strategy,
+        IEnvelopeDetector strategy,
         XbimModelLoader? loader = null)
     {
         loader ??= new XbimModelLoader();
