@@ -119,8 +119,10 @@ public abstract class IfcTestBase
             {
                 return candidate;
             }
+
             dir = dir.Parent;
         }
+
         return null;
     }
 

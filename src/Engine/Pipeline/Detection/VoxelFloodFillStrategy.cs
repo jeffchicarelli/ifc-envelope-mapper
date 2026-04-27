@@ -1,4 +1,4 @@
-#define DEBUGMESH
+#undef DEBUGMESH
 #if RELEASE
 #undef DEBUGMESH
 #endif
