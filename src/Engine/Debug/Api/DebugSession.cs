@@ -3,6 +3,10 @@ using System.Text.Json;
 
 using IfcEnvelopeMapper.Engine.Debug.Serialization;
 
+using Microsoft.Extensions.Logging;
+
+using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
+
 namespace IfcEnvelopeMapper.Engine.Debug.Api;
 
 // Process + file lifecycle for a debug run. Internal: the public surface is
@@ -124,9 +128,9 @@ internal static class DebugSession
 
             if (!File.Exists(helperDll) || !File.Exists(viewerHtml))
             {
-                Console.Error.WriteLine(
-                    $"[DebugSession] viewer skipped — missing helper or HTML next to Debug.dll " +
-                    $"(helperDll={File.Exists(helperDll)}, html={File.Exists(viewerHtml)})");
+                Log.LogWarning(
+                    "[DebugSession] viewer skipped — missing helper or HTML next to Debug.dll (helperDll={HelperDllExists}, html={HtmlExists})",
+                    File.Exists(helperDll), File.Exists(viewerHtml));
                 return;
             }
 
@@ -146,7 +150,7 @@ internal static class DebugSession
             _helperProcess = Process.Start(startInfo);
             if (_helperProcess is null)
             {
-                Console.Error.WriteLine("[DebugSession] Process.Start returned null");
+                Log.LogError("[DebugSession] Process.Start returned null");
                 return;
             }
 
@@ -171,14 +175,14 @@ internal static class DebugSession
             {
                 if (e.Data is not null)
                 {
-                    Console.WriteLine(e.Data);
+                    Log.LogInformation("{HelperOut}", e.Data);
                 }
             };
             _helperProcess.ErrorDataReceived += (_, e) =>
             {
                 if (e.Data is not null)
                 {
-                    Console.Error.WriteLine(e.Data);
+                    Log.LogError("{HelperErr}", e.Data);
                 }
             };
             _helperProcess.BeginOutputReadLine();
@@ -201,7 +205,7 @@ internal static class DebugSession
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[DebugSession] viewer start failed: {ex.Message}");
+            Log.LogError(ex, "[DebugSession] viewer start failed");
         }
     }
 }

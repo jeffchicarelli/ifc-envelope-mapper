@@ -9,6 +9,9 @@ using IfcEnvelopeMapper.Ifc.Domain;
 using IfcEnvelopeMapper.Ifc.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
+using Microsoft.Extensions.Logging;
+
+using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
 
 // Debug is a Debug-config-only ProjectReference — this using has to match
 // the same gate as the call sites below, otherwise Release can't resolve
@@ -92,7 +95,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         SidecarWriter.WriteVoxelOccupants(grid);
 
         var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
-        Console.WriteLine($"occupied voxels: {occupied.Count}");
+        Log.LogInformation("occupied voxels: {Count}", occupied.Count);
         GeometryDebug.Voxels(grid, occupied, Color.FromHex("#00aa00c0"), "occupied");
 #endif
 
@@ -101,7 +104,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
 
 #if DEBUGMESH
         var exterior = grid.VoxelsByState(VoxelState.Exterior).ToList();
-        Console.WriteLine($"exterior voxels: {exterior.Count}");
+        Log.LogInformation("exterior voxels: {Count}", exterior.Count);
         GeometryDebug.Voxels(grid, exterior, Color.FromHex("#0055ffc0"), "exterior");
 #endif
 
@@ -109,7 +112,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
 
 #if DEBUGMESH
         var interior = grid.VoxelsByState(VoxelState.Interior).ToList();
-        Console.WriteLine($"interior voxels: {interior.Count}");
+        Log.LogInformation("interior voxels: {Count}", interior.Count);
         GeometryDebug.Voxels(grid, interior, Color.FromHex("#ff0000c0"), "interior");
 #endif
 
