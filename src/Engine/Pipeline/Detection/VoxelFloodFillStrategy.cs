@@ -92,7 +92,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         // Emitted right after rasterize — occupants only grow during Rasterize,
         // so writing here captures the final mapping while the user can still
         // step through the flood-fill stages.
-        SidecarWriter.WriteVoxelOccupants(grid);
+        VoxelOccupants.Write(grid);
 
         var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
         Log.LogInformation("occupied voxels: {Count}", occupied.Count);

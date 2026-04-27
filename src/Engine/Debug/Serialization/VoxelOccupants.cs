@@ -6,21 +6,22 @@ using IfcEnvelopeMapper.Engine.Debug.Api;
 
 namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
 
-// Sidecar JSON for the debug viewer's voxel-pick feature. Lives next to the
-// voxel strategy that produces it (only caller). Atomic writes match the GLB
-// flush pattern: tmp + AtomicFile.MoveWithRetry so the viewer's pollers never
-// trip on a mid-flight swap.
+// Voxel→element occupancy map for the debug viewer's click-pick feature.
+// Emitted as a JSON file next to the GLB, keyed by voxel coordinate
+// (sparse — only cells with ≥1 occupant). Lets the viewer translate a
+// clicked voxel cube into the IFC elements that rasterized into it.
 //
-// Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op) and
-// derives its output path from <c>Scene.OutputPath</c> so per-flow
-// AsyncLocal isolation gives each xunit test method its own sidecar file —
-// no cross-test races on the shared default `C:\temp` location.
-public static class SidecarWriter
+// Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op)
+// and derives its output path from <c>Scene.OutputPath</c> so per-flow
+// AsyncLocal isolation gives each xunit test method its own file — no
+// cross-test races on the shared default `C:\temp` location.
+//
+// Atomic writes match the GLB flush pattern: tmp + AtomicFile.MoveWithRetry
+// so the viewer's pollers never trip on a mid-flight swap.
+internal static class VoxelOccupants
 {
     // Emits { voxelSize, origin, nx, ny, nz, occupants: { "x,y,z": [...ids] } }.
-    // Sparse: only cells with ≥1 occupant are written. Lets the viewer map a
-    // clicked voxel back to the Elements that rasterized into it.
-    public static void WriteVoxelOccupants(VoxelGrid3D grid)
+    public static void Write(VoxelGrid3D grid)
     {
         if (!GeometryDebug.Enabled)
         {
@@ -55,17 +56,17 @@ public static class SidecarWriter
             occupants,
         };
 
-        // Derive sidecar path next to the GLB so per-flow AsyncLocal output
-        // paths give each test its own sidecar file. e.g.
+        // Output path: same directory + stem as the current debug GLB,
+        // with `-occupants.json` appended.
         //   GLB    : C:\temp\test-run-XYZ.glb
-        //   sidecar: C:\temp\test-run-XYZ-occupants.json
-        var glbPath     = Scene.OutputPath;
-        var dir         = Path.GetDirectoryName(glbPath) ?? @"C:\temp";
-        var stem        = Path.GetFileNameWithoutExtension(glbPath);
-        var sidecarPath = Path.Combine(dir, stem + "-occupants.json");
+        //   output : C:\temp\test-run-XYZ-occupants.json
+        var glbPath  = Scene.OutputPath;
+        var dir      = Path.GetDirectoryName(glbPath) ?? @"C:\temp";
+        var stem     = Path.GetFileNameWithoutExtension(glbPath);
+        var jsonPath = Path.Combine(dir, stem + "-occupants.json");
 
-        var tmp = sidecarPath + ".tmp";
+        var tmp = jsonPath + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(payload));
-        AtomicFile.MoveWithRetry(tmp, sidecarPath);
+        AtomicFile.MoveWithRetry(tmp, jsonPath);
     }
 }

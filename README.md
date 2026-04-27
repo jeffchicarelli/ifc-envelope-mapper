@@ -57,15 +57,15 @@ src/
                                     AxisAlignedBox3d.ToCube()/.ToWireframe().
   Engine/                         Detection algorithms + visualization.
     Strategies/                     PcaFaceExtractor, VoxelFloodFillStrategy.
-    Visualization/                  GeometryDebug ([Conditional("DEBUG")]), DebugSession,
-                                    GltfSerializer, DebugShape, IfcTypePalette,
-                                    SidecarWriter, AtomicFile.
+    Visualization/                  GeometryDebug ([Conditional("DEBUG")]), Scene,
+                                    ViewerHelper, GltfSerializer, DebugShape, Color,
+                                    IfcTypePalette, VoxelOccupants, AtomicFile.
   Ifc/                            xBIM adapter.
     Loading/                        XbimModelLoader, IfcLoadException, IfcGeometryException.
     Resolver/                       XbimIfcProductResolver.
     Evaluation/                     GroundTruthGenerator, EvaluationPipeline.
   DebugServer/                    Standalone EXE — out-of-process HTTP viewer (ADR-17).
-                                  Spawned by Engine.Visualization.DebugSession; not a managed reference.
+                                  Spawned by Engine.Visualization.ViewerHelper; not a managed reference.
   Cli/                            System.CommandLine entry point — thin wrapper around EvaluationPipeline.
 tools/
   debug-viewer/                   three.js glTF viewer served by DebugServer (ADR-17).
