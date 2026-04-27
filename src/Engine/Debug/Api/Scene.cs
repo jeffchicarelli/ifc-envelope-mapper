@@ -6,32 +6,42 @@ namespace IfcEnvelopeMapper.Engine.Debug.Api;
 // (and the production CLI run) its own isolated shape buffer + output
 // path — no per-test setup, no cross-test contamination. The OS-level
 // helper process is owned by ViewerHelper, not here.
+//
+// Configure is required before any emission: a test that forgets it
+// gets InvalidOperationException at the first Add, not a silent default
+// that collides with other tests' GLB writes.
 internal static class Scene
 {
-    private sealed class State
+    private sealed class State(string outputPath, bool launchServer)
     {
         public List<DebugShape> Shapes       { get; }      = new();
-        public string           OutputPath   { get; set; } = DEFAULT_OUTPUT_PATH;
-        public bool             LaunchServer { get; set; } = true;
+        public string           OutputPath   { get; set; } = outputPath;
+        public bool             LaunchServer { get; set; } = launchServer;
     }
 
-    // %TEMP% (AppData\Local\Temp) is blocked by Chromium's File System Access
-    // API as a "system folder" so the file-picker-based fallback cannot read
-    // it. C:\temp is also where the CLI runs from (Google Drive Streaming
-    // native-DLL workaround), so everything lives in the same folder.
-    private static readonly string DEFAULT_OUTPUT_PATH =
-        Path.Combine(@"C:\temp", "ifc-debug-output.glb");
-
     private static readonly AsyncLocal<State?> _state = new();
-    private static State Current => _state.Value ??= new State();
+
+    private static State Current
+    {
+        get
+        {
+            var state = _state.Value;
+            if (state is null)
+            {
+                throw new InvalidOperationException(
+                    "GeometryDebug.Configure must be called before any emission. " +
+                    "Tests typically call Configure(outputPath, launchServer: false) at setup.");
+            }
+            return state;
+        }
+    }
 
     // Serialises the file write inside Flush. AsyncLocal already isolates
     // the in-memory shape list per flow, so concurrent Adds don't corrupt
     // each other's lists; this lock exists purely because the AtomicFile
     // ".tmp + rename" pattern races when two flows happen to share the
-    // same OutputPath (typical when neither has called Configure). Held
-    // only for the duration of the GLB write — microseconds — so contention
-    // is negligible.
+    // same OutputPath (defensive — required Configure makes the collision
+    // case unlikely). Held only for the duration of the GLB write.
     private static readonly object _flushLock = new();
 
     public static string OutputPath  => Current.OutputPath;
@@ -43,9 +53,7 @@ internal static class Scene
     // GeometryDebug.Enabled=false at startup instead.
     public static void Configure(string outputPath, bool launchServer = true)
     {
-        var state = Current;
-        state.OutputPath   = outputPath;
-        state.LaunchServer = launchServer;
+        _state.Value = new State(outputPath, launchServer);
     }
 
     public static void Add(DebugShape shape)

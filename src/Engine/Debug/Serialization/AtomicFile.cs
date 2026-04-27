@@ -3,7 +3,7 @@ namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
 // Atomic-write helpers shared by anything that wants to publish a file
 // readers might be polling (debug GLB, voxel-occupancy JSON). Used by
 // GltfSerializer and VoxelOccupants.
-public static class AtomicFile
+internal static class AtomicFile
 {
     // File.Move(overwrite:true) occasionally hits transient errors on Windows:
     //   - UnauthorizedAccessException: something holds the destination open
