@@ -64,11 +64,7 @@ public sealed class RayCastingStrategy : IEnvelopeDetector
         }
 
 #if DEBUGMESH
-        foreach (var element in elementsList)
-        {
-            GeometryDebug.Element(element.GetMesh(), element.GlobalId, element.IfcType,
-                IfcTypePalette.For(element.IfcType));
-        }
+        GeometryDebug.Send(elementsList);
 #endif
 
         var (globalMesh, triToElement) = MergeMeshes(elementsList);

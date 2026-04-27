@@ -98,7 +98,7 @@ public sealed class EvaluationPipelineTests : IfcTestBase
                 (true,  false) => Color.Red,
                 (false, true)  => Color.FromHex("#ff8800"),
             };
-            GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
+            GeometryDebug.Send(c.Element, color);
         }
 #endif
     }

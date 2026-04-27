@@ -77,11 +77,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         // Per-element emission: each mesh becomes its own glTF node tagged with
         // { globalId, ifcType } in extras. The viewer groups nodes by ifcType
         // for layer buttons and uses globalId for click-picking/highlighting.
-        foreach (var element in elementsList)
-        {
-            GeometryDebug.Element(element.GetMesh(), element.GlobalId, element.IfcType,
-                IfcTypePalette.For(element.IfcType));
-        }
+        GeometryDebug.Send(elementsList);
 #endif
 
         var grid = BuildGrid(elementsList);

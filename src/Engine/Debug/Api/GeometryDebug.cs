@@ -2,6 +2,8 @@ using System.Diagnostics;
 using g4;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
+using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Ifc.Domain;
 
 namespace IfcEnvelopeMapper.Engine.Debug.Api;
 
@@ -141,17 +143,32 @@ public static class GeometryDebug
         Add(new PointsShape(points.ToArray(), color ?? Color.Yellow, label));
     }
 
-    // ── IFC element emission (raw fields) ───────────────────────────────────
+    // ── IFC element emissions ───────────────────────────────────────────────
 
     // Per-element emission: each call becomes its own glTF node tagged with
-    // { globalId, ifcType } in extras. The viewer groups nodes by ifcType for
-    // layer buttons but can raycast/highlight individual elements by globalId.
-    // Callers pass raw fields (not Element) to keep this project decoupled
-    // from IfcEnvelopeMapper.Core. Folded into Send(Element) in Step 7.
+    // { globalId, ifcType } in extras. The viewer groups nodes by ifcType
+    // for layer buttons and can raycast/highlight individual elements by
+    // globalId. Color falls through to the IFC-type palette when omitted.
     [Conditional("DEBUG")]
-    public static void Element(DMesh3 mesh, string globalId, string ifcType, Color? color = null)
+    public static void Send(Element element, Color? color = null)
     {
-        Add(new MeshShape(mesh, color ?? Color.Gray, ifcType, globalId));
+        Add(new MeshShape(
+            element.GetMesh(),
+            color ?? IfcTypePalette.For(element.IfcType),
+            element.IfcType,
+            element.GlobalId));
+    }
+
+    // Batch: each element gets its palette colour. Callers wanting a single
+    // override across the batch use the per-element overload in their own
+    // foreach.
+    [Conditional("DEBUG")]
+    public static void Send(IEnumerable<Element> elements)
+    {
+        foreach (var element in elements)
+        {
+            Send(element);
+        }
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
