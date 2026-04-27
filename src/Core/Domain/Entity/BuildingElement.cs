@@ -14,6 +14,7 @@ public sealed class BuildingElement : IEquatable<BuildingElement>
 
     /// <summary>Triangulated geometry in world coordinates, already baked from the IFC placement.</summary>
     public required DMesh3 Mesh { get; init; }
+
     public BuildingElementContext Context { get; init; }
 
     /// <summary>
