@@ -1,6 +1,6 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
-using IfcEnvelopeMapper.Tests.Fixtures;
+
 
 #if DEBUG
 using IfcEnvelopeMapper.Engine.Debug;
@@ -14,7 +14,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // — open `Path.GetTempPath() + EvaluationPipelineTests_disagreement.glb` in any
 // glTF viewer to see exactly which elements moved categories. Debug-config-only.
 [Trait("Category", "Integration")]
-public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
+public sealed class EvaluationPipelineTests : IfcTestBase
 {
     // Golden counts captured from a clean CLI run on duplex.ifc + voxelSize=0.25.
     // Values shifted in P4.1 (Element with lazy mesh, bbox sourced from
@@ -34,20 +34,18 @@ public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
 
     private const double VOXEL_SIZE = 0.25;
 
-    private readonly IfcModelFixture _fixture;
-
-    public EvaluationPipelineTests(IfcModelFixture fixture) => _fixture = fixture;
+    public EvaluationPipelineTests() : base("duplex.ifc") { }
 
     [Fact]
     public void Pipeline_OnDuplex_ProducesExpectedCounts()
     {
         // Arrange
-        var gtPath = ResolveGroundTruthPath();
+        var gtPath = GroundTruthPath("duplex.csv");
         var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
-        EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_ProducesExpectedCounts));
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        //EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_ProducesExpectedCounts));
 
         // Assert
         result.Counts.TruePositives.Should().BeInRange(EXPECTED_TP - TOLERANCE, EXPECTED_TP + TOLERANCE);
@@ -60,22 +58,15 @@ public sealed class EvaluationPipelineTests : IClassFixture<IfcModelFixture>
     public void Pipeline_OnDuplex_PrecisionRecallAboveFloor()
     {
         // Arrange
-        var gtPath = ResolveGroundTruthPath();
+        var gtPath = GroundTruthPath("duplex.csv");
         var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(_fixture.IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
 
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(PRECISION_FLOOR);
         result.Counts.Recall.Should().BeGreaterThanOrEqualTo(RECALL_FLOOR);
-    }
-
-    private string ResolveGroundTruthPath()
-    {
-        // ifcPath = .../data/models/duplex.ifc → gtPath = .../data/ground-truth/duplex.csv
-        var dataDir = Path.GetDirectoryName(Path.GetDirectoryName(_fixture.IfcPath))!;
-        return Path.Combine(dataDir, "ground-truth", "duplex.csv");
     }
 
     // Always emits — the GLB is cheap and on assertion failure the developer
