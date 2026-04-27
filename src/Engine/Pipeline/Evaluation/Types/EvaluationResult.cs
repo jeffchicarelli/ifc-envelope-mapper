@@ -1,6 +1,6 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 
-namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 /// <summary>
 /// Output of one evaluation run: the detection output, the confusion-matrix

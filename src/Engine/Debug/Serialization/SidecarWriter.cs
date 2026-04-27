@@ -2,7 +2,9 @@ using System.Text.Json;
 
 using IfcEnvelopeMapper.Core.Domain.Voxel;
 
-namespace IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
+
+namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
 
 // Sidecar JSON for the debug viewer's voxel-pick feature. Lives next to the
 // voxel strategy that produces it (only caller). Atomic writes match the GLB

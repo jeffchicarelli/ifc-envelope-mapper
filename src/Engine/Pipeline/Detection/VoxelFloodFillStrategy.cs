@@ -15,6 +15,8 @@ using IfcEnvelopeMapper.Core.Domain.Voxel;
 // the namespace.
 #if DEBUGMESH
 using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Debug.Serialization;
 #endif
 
 namespace IfcEnvelopeMapper.Engine.Pipeline.Detection;

@@ -1,10 +1,11 @@
 using FluentAssertions.Execution;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;

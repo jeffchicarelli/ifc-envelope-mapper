@@ -1,6 +1,7 @@
 using System.Text;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 
 namespace IfcEnvelopeMapper.Tests.Integration;

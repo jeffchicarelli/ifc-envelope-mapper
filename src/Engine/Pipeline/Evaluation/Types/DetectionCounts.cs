@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 /// <summary>
 /// Confusion-matrix counts for a single detection run against a ground-truth set.

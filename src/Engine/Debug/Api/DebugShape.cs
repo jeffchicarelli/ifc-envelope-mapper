@@ -1,6 +1,6 @@
 using g4;
 
-namespace IfcEnvelopeMapper.Engine.Debug;
+namespace IfcEnvelopeMapper.Engine.Debug.Api;
 
 // Three payloads matching the three glTF primitive topologies.
 // All high-level shapes (Box, Sphere, Plane, Voxels, Normal) are pre-generated

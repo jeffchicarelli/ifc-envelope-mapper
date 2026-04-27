@@ -3,7 +3,7 @@ using g4;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
 
-namespace IfcEnvelopeMapper.Engine.Debug;
+namespace IfcEnvelopeMapper.Engine.Debug.Api;
 
 /// <summary>
 /// Geometric debugger for algorithm development. A pure facade: every public

@@ -7,7 +7,9 @@ using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
 using SharpGLTF.Scenes;
 
-namespace IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
+
+namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
 
 // Encodes a list of DebugShape payloads into a single GLB file.
 //

@@ -1,5 +1,5 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
-using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 using IfcEnvelopeMapper.Ifc.Loading;
 
 namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;

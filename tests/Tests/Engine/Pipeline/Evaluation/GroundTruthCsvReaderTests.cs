@@ -1,4 +1,5 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 namespace IfcEnvelopeMapper.Tests.Engine.Pipeline.Evaluation;
 

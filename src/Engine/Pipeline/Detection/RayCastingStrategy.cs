@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 
 #if DEBUGMESH
 using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 #endif
 
 using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;

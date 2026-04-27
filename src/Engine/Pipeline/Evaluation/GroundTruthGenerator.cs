@@ -1,6 +1,7 @@
 using IfcEnvelopeMapper.Ifc.Domain;
 using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
+using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 

@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Serialization;
+
+namespace IfcEnvelopeMapper.Engine.Debug.Api;
 
 // Process + file lifecycle for a debug run. Internal: the public surface is
 // GeometryDebug. Splitting this out keeps GeometryDebug focused on the

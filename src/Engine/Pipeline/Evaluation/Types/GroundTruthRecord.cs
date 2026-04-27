@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
+namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 /// <summary>
 /// One labelled row of a ground-truth CSV. <paramref name="IsExterior"/> is tri-state:

@@ -4,7 +4,7 @@ using IfcEnvelopeMapper.Core.Diagnostics;
 using IfcEnvelopeMapper.Engine.Pipeline.BcfReport;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.JsonReport;
-using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 using IfcEnvelopeMapper.Ifc.Loading;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
