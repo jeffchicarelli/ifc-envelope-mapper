@@ -88,32 +88,29 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         Rasterize(grid, elementsList);
 
 #if DEBUGMESH
-        // Sidecar JSON { "x,y,z": [globalIds...] } for viewer click-picking.
+        // JSON map { "x,y,z": [globalIds...] } for viewer click-picking.
         // Emitted right after rasterize — occupants only grow during Rasterize,
         // so writing here captures the final mapping while the user can still
         // step through the flood-fill stages.
         VoxelOccupants.Write(grid);
 
-        var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
-        Log.LogInformation("occupied voxels: {Count}", occupied.Count);
-        GeometryDebug.Voxels(grid, occupied, Color.FromHex("#00aa00c0"), "occupied");
+        Log.LogInformation("occupied voxels: {Count}", grid.VoxelsByState(VoxelState.Occupied).Count());
+        GeometryDebug.Send(grid, VoxelState.Occupied);
 #endif
 
         grid.GrowExterior();
         grid.FillGaps();
 
 #if DEBUGMESH
-        var exterior = grid.VoxelsByState(VoxelState.Exterior).ToList();
-        Log.LogInformation("exterior voxels: {Count}", exterior.Count);
-        GeometryDebug.Voxels(grid, exterior, Color.FromHex("#0055ffc0"), "exterior");
+        Log.LogInformation("exterior voxels: {Count}", grid.VoxelsByState(VoxelState.Exterior).Count());
+        GeometryDebug.Send(grid, VoxelState.Exterior);
 #endif
 
         grid.GrowInterior();
 
 #if DEBUGMESH
-        var interior = grid.VoxelsByState(VoxelState.Interior).ToList();
-        Log.LogInformation("interior voxels: {Count}", interior.Count);
-        GeometryDebug.Voxels(grid, interior, Color.FromHex("#ff0000c0"), "interior");
+        Log.LogInformation("interior voxels: {Count}", grid.VoxelsByState(VoxelState.Interior).Count());
+        GeometryDebug.Send(grid, VoxelState.Interior);
 #endif
 
         grid.GrowVoid();

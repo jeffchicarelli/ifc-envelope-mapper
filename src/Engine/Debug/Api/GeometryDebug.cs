@@ -11,13 +11,14 @@ namespace IfcEnvelopeMapper.Engine.Debug.Api;
 /// <c>DEBUG</c> emit zero IL at the call site — Release builds pay nothing,
 /// with no wrappers needed.
 ///
-/// Each method builds a <see cref="DebugShape"/> and hands it to
-/// <see cref="Scene"/>, which owns the per-flow shape buffer.
-/// <see cref="ViewerHelper"/> is contacted (idempotently) on the first
-/// emission to spawn the helper viewer process. Open
-/// <c>http://localhost:5173/</c> in a browser: the viewer polls the GLB
-/// 5×/sec and reflects the current geometric state. Set an IDE breakpoint
-/// after a call — the file is already written by the time execution pauses.
+/// One overloaded <c>Send</c> covers every supported shape — the compiler
+/// dispatches on argument type. Each method builds a <see cref="DebugShape"/>
+/// and hands it to <see cref="Scene"/>; <see cref="ViewerHelper"/> is
+/// contacted (idempotently) on the first emission to spawn the helper viewer
+/// process. Open <c>http://localhost:5173/</c> in a browser: the viewer
+/// polls the GLB 5×/sec and reflects the current geometric state. Set an
+/// IDE breakpoint after a call — the file is already written by the time
+/// execution pauses.
 /// </summary>
 public static class GeometryDebug
 {
@@ -43,10 +44,10 @@ public static class GeometryDebug
         Scene.Configure(outputPath, launchServer);
     }
 
-    // ── High-level shape API (all [Conditional("DEBUG")]) ───────────────────
+    // ── Mesh emissions ──────────────────────────────────────────────────────
 
     [Conditional("DEBUG")]
-    public static void Mesh(DMesh3 mesh, Color? color = null, string label = "")
+    public static void Send(DMesh3 mesh, Color? color = null, string label = "")
     {
         Add(new MeshShape(mesh, color ?? Color.Red, label));
     }
@@ -54,82 +55,106 @@ public static class GeometryDebug
     // Batched: collapses N meshes into one MeshShape so the viewer shows one
     // layer per call (not N identical buttons when emitting a per-group layer).
     [Conditional("DEBUG")]
-    public static void Meshes(IEnumerable<DMesh3> meshes, Color? color = null, string label = "")
+    public static void Send(IEnumerable<DMesh3> meshes, Color? color = null, string label = "")
     {
         Add(new MeshShape(meshes.Merge(), color ?? Color.Gray, label));
     }
 
+    // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
+    [Conditional("DEBUG")]
+    public static void Send(DMesh3 mesh, IEnumerable<int> triangleIds,
+                             Color? color = null, string label = "")
+    {
+        Add(new MeshShape(mesh.ExtractTriangles(triangleIds), color ?? Color.Red, label));
+    }
+
+    // ── Voxel emissions ─────────────────────────────────────────────────────
+
+    [Conditional("DEBUG")]
+    public static void Send(VoxelGrid3D grid, IEnumerable<VoxelCoord> coords,
+                             Color? color = null, string label = "")
+    {
+        Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25), color ?? Color.Blue, label));
+    }
+
+    // Convenience for the common "show all voxels in state X" pattern. Default
+    // colours match the existing semantic palette (occupied = translucent green,
+    // exterior = translucent blue, interior = translucent red, void = neutral).
+    [Conditional("DEBUG")]
+    public static void Send(VoxelGrid3D grid, VoxelState state, Color? color = null)
+    {
+        var coords = grid.VoxelsByState(state).ToList();
+        var defaultColor = state switch
+        {
+            VoxelState.Occupied => Color.FromHex("#00aa00c0"),
+            VoxelState.Exterior => Color.FromHex("#0055ffc0"),
+            VoxelState.Interior => Color.FromHex("#ff0000c0"),
+            VoxelState.Void     => Color.FromHex("#ccccccc0"),
+            _                   => Color.White,
+        };
+        Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25),
+                          color ?? defaultColor, state.ToString().ToLowerInvariant()));
+    }
+
+    // ── Geometric primitives ────────────────────────────────────────────────
+
+    [Conditional("DEBUG")]
+    public static void Send(AxisAlignedBox3d box, Color? color = null, string label = "")
+    {
+        Add(new LinesShape(box.ToWireframe().ToArray(), color ?? Color.Cyan, label));
+    }
+
+    [Conditional("DEBUG")]
+    public static void Send(Plane3d plane, double displaySize = 1.0,
+                             Color? color = null, string label = "")
+    {
+        Add(new MeshShape(plane.ToQuadMesh(displaySize), color ?? Color.Green, label));
+    }
+
+    // Sphere — disambiguated from Send(Vector3d, Vector3d) by the second
+    // parameter type (double vs Vector3d).
+    [Conditional("DEBUG")]
+    public static void Send(Vector3d center, double radius,
+                             Color? color = null, string label = "")
+    {
+        Add(new MeshShape(center.ToSphere(radius), color ?? Color.Magenta, label));
+    }
+
+    // Line. Normals (origin + direction*length) are caller-computed:
+    //   Send(origin, origin + direction * length, Color.Yellow, "normal")
+    [Conditional("DEBUG")]
+    public static void Send(Vector3d from, Vector3d to, Color? color = null, string label = "")
+    {
+        Add(new LinesShape([(from, to)], color ?? Color.White, label));
+    }
+
+    [Conditional("DEBUG")]
+    public static void Send(IEnumerable<(Vector3d From, Vector3d To)> segments,
+                             Color? color = null, string label = "")
+    {
+        Add(new LinesShape(segments.ToArray(), color ?? Color.White, label));
+    }
+
+    [Conditional("DEBUG")]
+    public static void Send(IEnumerable<Vector3d> points, Color? color = null, string label = "")
+    {
+        Add(new PointsShape(points.ToArray(), color ?? Color.Yellow, label));
+    }
+
+    // ── IFC element emission (raw fields) ───────────────────────────────────
+
     // Per-element emission: each call becomes its own glTF node tagged with
     // { globalId, ifcType } in extras. The viewer groups nodes by ifcType for
     // layer buttons but can raycast/highlight individual elements by globalId.
-    // Callers pass raw fields (not Element) to keep this project
-    // decoupled from IfcEnvelopeMapper.Core.
+    // Callers pass raw fields (not Element) to keep this project decoupled
+    // from IfcEnvelopeMapper.Core. Folded into Send(Element) in Step 7.
     [Conditional("DEBUG")]
     public static void Element(DMesh3 mesh, string globalId, string ifcType, Color? color = null)
     {
         Add(new MeshShape(mesh, color ?? Color.Gray, ifcType, globalId));
     }
 
-    // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
-    [Conditional("DEBUG")]
-    public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds,
-                                  Color? color = null, string label = "")
-    {
-        Add(new MeshShape(mesh.ExtractTriangles(triangleIds), color ?? Color.Red, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Voxels(VoxelGrid3D grid, IEnumerable<VoxelCoord> coords,
-                               Color? color = null, string label = "")
-    {
-        Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25), color ?? Color.Blue, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Points(IEnumerable<Vector3d> points, Color? color = null, string label = "")
-    {
-        Add(new PointsShape(points.ToArray(), color ?? Color.Yellow, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Line(Vector3d from, Vector3d to, Color? color = null, string label = "")
-    {
-        Add(new LinesShape([(from, to)], color ?? Color.White, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Lines(IEnumerable<(Vector3d From, Vector3d To)> segments,
-                              Color? color = null, string label = "")
-    {
-        Add(new LinesShape(segments.ToArray(), color ?? Color.White, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Box(AxisAlignedBox3d box, Color? color = null, string label = "")
-    {
-        Add(new LinesShape(box.ToWireframe().ToArray(), color ?? Color.Cyan, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Plane(Plane3d plane, double displaySize = 1.0,
-                              Color? color = null, string label = "")
-    {
-        Add(new MeshShape(plane.ToQuadMesh(displaySize), color ?? Color.Green, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Sphere(Vector3d center, double radius,
-                               Color? color = null, string label = "")
-    {
-        Add(new MeshShape(center.ToSphere(radius), color ?? Color.Magenta, label));
-    }
-
-    [Conditional("DEBUG")]
-    public static void Normal(Vector3d origin, Vector3d direction, double length = 0.5,
-                               Color? color = null, string label = "")
-    {
-        Add(new LinesShape([(origin, origin + direction * length)], color ?? Color.Yellow, label));
-    }
+    // ── Lifecycle ───────────────────────────────────────────────────────────
 
     [Conditional("DEBUG")]
     public static void Clear()
