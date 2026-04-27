@@ -48,7 +48,7 @@ TestResults/
 *.trx
 
 # Test data — large binaries, download per data/README.md
-data/models/*.ifc
+data/models/**/*.ifc
 data/results/
 data/ground-truth/*.csv
 
