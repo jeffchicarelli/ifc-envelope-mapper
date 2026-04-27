@@ -1,4 +1,5 @@
 using IfcEnvelopeMapper.Engine.Debug;
+using IfcEnvelopeMapper.Engine.Debug.Api;
 
 namespace IfcEnvelopeMapper.Tests.Engine.Debug;
 
@@ -10,6 +11,8 @@ namespace IfcEnvelopeMapper.Tests.Engine.Debug;
 /// </summary>
 public class IfcTypePaletteTests
 {
+    private static readonly Color Default = Color.FromHex("#cccccccc");
+
     [Theory]
     [InlineData("IfcWall")]
     [InlineData("IfcSlab")]
@@ -17,12 +20,14 @@ public class IfcTypePaletteTests
     [InlineData("IfcWindow")]
     [InlineData("IfcDoor")]
     [InlineData("IfcSpace")]
-    public void For_KnownType_ReturnsHexColorString(string ifcType)
+    public void For_KnownType_ReturnsTableColor(string ifcType)
     {
         var color = IfcTypePalette.For(ifcType);
 
-        color.Should().StartWith("#");
-        color.Length.Should().BeOneOf(7, 9); // "#RRGGBB" or "#RRGGBBAA"
+        // Known types resolve to entries in the table — anything other than
+        // the default fallback. Specific values intentionally not pinned here:
+        // the table is allowed to evolve without churning this test.
+        color.Should().NotBe(Default);
     }
 
     [Fact]
@@ -30,7 +35,7 @@ public class IfcTypePaletteTests
     {
         var color = IfcTypePalette.For("IfcSomethingUnsupported");
 
-        color.Should().Be("#cccccccc");
+        color.Should().Be(Default);
     }
 
     [Fact]
@@ -41,8 +46,8 @@ public class IfcTypePaletteTests
         // same colour — relevant because IFC type names come from
         // reflection (`element.GetType().Name`) but xBIM has historically
         // surprised callers with subtle casing variations across schema versions.
-        var lower = IfcTypePalette.For("ifcwall");
-        var upper = IfcTypePalette.For("IFCWALL");
+        var lower  = IfcTypePalette.For("ifcwall");
+        var upper  = IfcTypePalette.For("IFCWALL");
         var pascal = IfcTypePalette.For("IfcWall");
 
         lower.Should().Be(pascal);
@@ -58,12 +63,8 @@ public class IfcTypePaletteTests
         var window      = IfcTypePalette.For("IfcWindow");
         var curtainWall = IfcTypePalette.For("IfcCurtainWall");
 
-        window.Length.Should().Be(9, "glazing colors include an alpha byte");
-        curtainWall.Length.Should().Be(9);
-
-        // Last two hex digits are alpha; parse and confirm < 0xFF.
-        AlphaOf(window).Should().BeLessThan(0xFF);
-        AlphaOf(curtainWall).Should().BeLessThan(0xFF);
+        window.A.Should().BeLessThan((byte)0xFF);
+        curtainWall.A.Should().BeLessThan((byte)0xFF);
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public class IfcTypePaletteTests
         // volumes in the debug viewer without occluding the elements inside.
         var color = IfcTypePalette.For("IfcSpace");
 
-        AlphaOf(color).Should().BeLessThan(0x80);
+        color.A.Should().BeLessThan((byte)0x80);
     }
 
     [Fact]
@@ -82,13 +83,6 @@ public class IfcTypePaletteTests
         // Guard against a defensive path: the source uses TryGetValue, which
         // tolerates null keys via the StringComparer. Empty string isn't
         // in the table, so it falls through to the default.
-        IfcTypePalette.For(string.Empty).Should().Be("#cccccccc");
-    }
-
-    private static int AlphaOf(string hexColor)
-    {
-        // Last two characters of "#RRGGBBAA"
-        var alphaHex = hexColor.Substring(hexColor.Length - 2);
-        return Convert.ToInt32(alphaHex, 16);
+        IfcTypePalette.For(string.Empty).Should().Be(Default);
     }
 }

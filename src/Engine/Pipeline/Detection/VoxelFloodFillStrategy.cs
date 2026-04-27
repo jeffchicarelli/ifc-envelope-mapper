@@ -93,7 +93,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
 
         var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
         Console.WriteLine($"occupied voxels: {occupied.Count}");
-        GeometryDebug.Voxels(grid, occupied, "#00aa00c0", "occupied");
+        GeometryDebug.Voxels(grid, occupied, Color.FromHex("#00aa00c0"), "occupied");
 #endif
 
         grid.GrowExterior();
@@ -102,7 +102,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
 #if DEBUGMESH
         var exterior = grid.VoxelsByState(VoxelState.Exterior).ToList();
         Console.WriteLine($"exterior voxels: {exterior.Count}");
-        GeometryDebug.Voxels(grid, exterior, "#0055ffc0", "exterior");
+        GeometryDebug.Voxels(grid, exterior, Color.FromHex("#0055ffc0"), "exterior");
 #endif
 
         grid.GrowInterior();
@@ -110,7 +110,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
 #if DEBUGMESH
         var interior = grid.VoxelsByState(VoxelState.Interior).ToList();
         Console.WriteLine($"interior voxels: {interior.Count}");
-        GeometryDebug.Voxels(grid, interior, "#ff0000c0", "interior");
+        GeometryDebug.Voxels(grid, interior, Color.FromHex("#ff0000c0"), "interior");
 #endif
 
         grid.GrowVoid();

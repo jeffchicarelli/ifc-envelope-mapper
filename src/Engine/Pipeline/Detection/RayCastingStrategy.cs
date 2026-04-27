@@ -142,11 +142,11 @@ public sealed class RayCastingStrategy : IEnvelopeDetector
         var hitsDbg    = debugSegments.Where(s => !s.Escape).Select(s => (s.From, s.To)).ToList();
         if (escapesDbg.Count > 0)
         {
-            GeometryDebug.Lines(escapesDbg, "#00aa00", "ray-escape");
+            GeometryDebug.Lines(escapesDbg, Color.FromHex("#00aa00"), "ray-escape");
         }
         if (hitsDbg.Count > 0)
         {
-            GeometryDebug.Lines(hitsDbg, "#aa0000", "ray-hit");
+            GeometryDebug.Lines(hitsDbg, Color.FromHex("#aa0000"), "ray-hit");
         }
 #endif
 

@@ -45,17 +45,17 @@ public static class GeometryDebug
     // ── High-level shape API (all [Conditional("DEBUG")]) ───────────────────
 
     [Conditional("DEBUG")]
-    public static void Mesh(DMesh3 mesh, string color = "#ff0000", string label = "")
+    public static void Mesh(DMesh3 mesh, Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(mesh, color, label));
+        DebugSession.Add(new MeshShape(mesh, color ?? Color.Red, label));
     }
 
     // Batched: collapses N meshes into one MeshShape so the viewer shows one
     // layer per call (not N identical buttons when emitting a per-group layer).
     [Conditional("DEBUG")]
-    public static void Meshes(IEnumerable<DMesh3> meshes, string color = "#cccccc", string label = "")
+    public static void Meshes(IEnumerable<DMesh3> meshes, Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(meshes.Merge(), color, label));
+        DebugSession.Add(new MeshShape(meshes.Merge(), color ?? Color.Gray, label));
     }
 
     // Per-element emission: each call becomes its own glTF node tagged with
@@ -64,70 +64,70 @@ public static class GeometryDebug
     // Callers pass raw fields (not Element) to keep this project
     // decoupled from IfcEnvelopeMapper.Core.
     [Conditional("DEBUG")]
-    public static void Element(DMesh3 mesh, string globalId, string ifcType, string color = "#cccccc")
+    public static void Element(DMesh3 mesh, string globalId, string ifcType, Color? color = null)
     {
-        DebugSession.Add(new MeshShape(mesh, color, ifcType, globalId));
+        DebugSession.Add(new MeshShape(mesh, color ?? Color.Gray, ifcType, globalId));
     }
 
     // Slice of a mesh by triangle IDs — extracts just those tris into a new DMesh3.
     [Conditional("DEBUG")]
     public static void Triangles(DMesh3 mesh, IEnumerable<int> triangleIds,
-                                  string color = "#ff0000", string label = "")
+                                  Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(mesh.ExtractTriangles(triangleIds), color, label));
+        DebugSession.Add(new MeshShape(mesh.ExtractTriangles(triangleIds), color ?? Color.Red, label));
     }
 
     [Conditional("DEBUG")]
     public static void Voxels(VoxelGrid3D grid, IEnumerable<VoxelCoord> coords,
-                               string color = "#0000ff", string label = "")
+                               Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25), color, label));
+        DebugSession.Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25), color ?? Color.Blue, label));
     }
 
     [Conditional("DEBUG")]
-    public static void Points(IEnumerable<Vector3d> points, string color = "#ffff00", string label = "")
+    public static void Points(IEnumerable<Vector3d> points, Color? color = null, string label = "")
     {
-        DebugSession.Add(new PointsShape(points.ToArray(), color, label));
+        DebugSession.Add(new PointsShape(points.ToArray(), color ?? Color.Yellow, label));
     }
 
     [Conditional("DEBUG")]
-    public static void Line(Vector3d from, Vector3d to, string color = "#ffffff", string label = "")
+    public static void Line(Vector3d from, Vector3d to, Color? color = null, string label = "")
     {
-        DebugSession.Add(new LinesShape([(from, to)], color, label));
+        DebugSession.Add(new LinesShape([(from, to)], color ?? Color.White, label));
     }
 
     [Conditional("DEBUG")]
     public static void Lines(IEnumerable<(Vector3d From, Vector3d To)> segments,
-                              string color = "#ffffff", string label = "")
+                              Color? color = null, string label = "")
     {
-        DebugSession.Add(new LinesShape(segments.ToArray(), color, label));
+        DebugSession.Add(new LinesShape(segments.ToArray(), color ?? Color.White, label));
     }
 
     [Conditional("DEBUG")]
-    public static void Box(AxisAlignedBox3d box, string color = "#00ffff", string label = "")
+    public static void Box(AxisAlignedBox3d box, Color? color = null, string label = "")
     {
-        DebugSession.Add(new LinesShape(box.ToWireframe().ToArray(), color, label));
+        DebugSession.Add(new LinesShape(box.ToWireframe().ToArray(), color ?? Color.Cyan, label));
     }
 
     [Conditional("DEBUG")]
     public static void Plane(Plane3d plane, double displaySize = 1.0,
-                              string color = "#00ff00", string label = "")
+                              Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(plane.ToQuadMesh(displaySize), color, label));
+        DebugSession.Add(new MeshShape(plane.ToQuadMesh(displaySize), color ?? Color.Green, label));
     }
 
     [Conditional("DEBUG")]
     public static void Sphere(Vector3d center, double radius,
-                               string color = "#ff00ff", string label = "")
+                               Color? color = null, string label = "")
     {
-        DebugSession.Add(new MeshShape(center.ToSphere(radius), color, label));
+        DebugSession.Add(new MeshShape(center.ToSphere(radius), color ?? Color.Magenta, label));
     }
 
     [Conditional("DEBUG")]
     public static void Normal(Vector3d origin, Vector3d direction, double length = 0.5,
-                               string color = "#ffff00", string label = "")
+                               Color? color = null, string label = "")
     {
-        DebugSession.Add(new LinesShape([(origin, origin + direction * length)], color, label));
+        DebugSession.Add(new LinesShape([(origin, origin + direction * length)], color ?? Color.Yellow, label));
     }
 
     [Conditional("DEBUG")]

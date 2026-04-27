@@ -34,13 +34,13 @@ internal static class GltfSerializer
         // Insertion order is preserved (Dictionary<TKey,TValue> iterates in insertion
         // order in the current runtime), so layer buttons appear in the order the
         // first call with each (label, color) arrived.
-        var meshes   = new Dictionary<(string label, string color), DMesh3>();
+        var meshes   = new Dictionary<(string label, Color color), DMesh3>();
 
         // Per-element emissions (MeshShape with GlobalId) skip the merge path so
         // the viewer gets one node per element with { globalId, ifcType } extras.
         var elements = new List<MeshShape>();
-        var lines    = new Dictionary<(string label, string color), List<(Vector3d From, Vector3d To)>>();
-        var points   = new Dictionary<(string label, string color), List<Vector3d>>();
+        var lines    = new Dictionary<(string label, Color color), List<(Vector3d From, Vector3d To)>>();
+        var points   = new Dictionary<(string label, Color color), List<Vector3d>>();
 
         foreach (var shape in shapes)
         {
@@ -155,21 +155,11 @@ internal static class GltfSerializer
         }
     }
 
-    // ── Color helpers ────────────────────────────────────────────────────────
+    // ── Material helper ──────────────────────────────────────────────────────
 
-    private static Vector4 ParseColor(string hex)
+    private static MaterialBuilder MakeMaterial(Color color, string label)
     {
-        hex = hex.TrimStart('#');
-        var r = Convert.ToInt32(hex[0..2], 16) / 255f;
-        var g = Convert.ToInt32(hex[2..4], 16) / 255f;
-        var b = Convert.ToInt32(hex[4..6], 16) / 255f;
-        var a = hex.Length == 8 ? Convert.ToInt32(hex[6..8], 16) / 255f : 1f;
-        return new Vector4(r, g, b, a);
-    }
-
-    private static MaterialBuilder MakeMaterial(string color, string label)
-    {
-        var c = ParseColor(color);
+        var c = color.ToVector4();
         var mat = new MaterialBuilder(label)
             .WithDoubleSide(true)
             .WithUnlitShader() // Viewer replaces with MeshLambertMaterial on load — keep GLB flat.
@@ -183,7 +173,7 @@ internal static class GltfSerializer
 
     // ── Primitive adders ─────────────────────────────────────────────────────
 
-    private static void AddMesh(SceneBuilder scene, DMesh3 mesh, string color, string label)
+    private static void AddMesh(SceneBuilder scene, DMesh3 mesh, Color color, string label)
     {
         var mb   = new MeshBuilder<VertexPosition>(label);
         var prim = mb.UsePrimitive(MakeMaterial(color, label));
@@ -235,7 +225,7 @@ internal static class GltfSerializer
     }
 
     private static void AddLines(SceneBuilder scene, (Vector3d From, Vector3d To)[] segs,
-                                  string color, string label)
+                                  Color color, string label)
     {
         var mb   = new MeshBuilder<VertexPosition>(label);
         var prim = mb.UsePrimitive(MakeMaterial(color, label), 2); // 2 vertices/primitive = LINES
@@ -249,7 +239,7 @@ internal static class GltfSerializer
     }
 
     private static void AddPoints(SceneBuilder scene, Vector3d[] points,
-                                   string color, string label)
+                                   Color color, string label)
     {
         var mb   = new MeshBuilder<VertexPosition>(label);
         var prim = mb.UsePrimitive(MakeMaterial(color, label), 1); // 1 vertex/primitive = POINTS

@@ -1,3 +1,5 @@
+using IfcEnvelopeMapper.Engine.Debug.Api;
+
 namespace IfcEnvelopeMapper.Engine.Debug;
 
 // Semantic color palette for debug visualization, keyed by IFC entity type.
@@ -9,26 +11,28 @@ namespace IfcEnvelopeMapper.Engine.Debug;
 // see-through without the caller having to append alpha per call site.
 public static class IfcTypePalette
 {
-    private static readonly Dictionary<string, string> Colors = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, Color> Colors = new(StringComparer.OrdinalIgnoreCase)
     {
-        { "IfcWall",             "#d4c4a8c0" },
-        { "IfcWallStandardCase", "#d4c4a8c0" },
-        { "IfcSlab",             "#b0b0b0c0" },
-        { "IfcRoof",             "#a0522dc0" },
-        { "IfcWindow",           "#87ceeb80" },
-        { "IfcDoor",             "#8b5a2bc0" },
-        { "IfcColumn",           "#909090c0" },
-        { "IfcBeam",             "#808080c0" },
-        { "IfcStair",            "#b8860bc0" },
-        { "IfcStairFlight",      "#b8860bc0" },
-        { "IfcRailing",          "#696969c0" },
-        { "IfcCurtainWall",      "#87ceeb80" },
-        { "IfcMember",           "#707070c0" },
-        { "IfcPlate",            "#909090c0" },
-        { "IfcSpace",            "#ffff0040" },
-        { "IfcCovering",         "#c0b090c0" },
+        { "IfcWall",             Color.FromHex("#d4c4a8c0") },
+        { "IfcWallStandardCase", Color.FromHex("#d4c4a8c0") },
+        { "IfcSlab",             Color.FromHex("#b0b0b0c0") },
+        { "IfcRoof",             Color.FromHex("#a0522dc0") },
+        { "IfcWindow",           Color.FromHex("#87ceeb80") },
+        { "IfcDoor",             Color.FromHex("#8b5a2bc0") },
+        { "IfcColumn",           Color.FromHex("#909090c0") },
+        { "IfcBeam",             Color.FromHex("#808080c0") },
+        { "IfcStair",            Color.FromHex("#b8860bc0") },
+        { "IfcStairFlight",      Color.FromHex("#b8860bc0") },
+        { "IfcRailing",          Color.FromHex("#696969c0") },
+        { "IfcCurtainWall",      Color.FromHex("#87ceeb80") },
+        { "IfcMember",           Color.FromHex("#707070c0") },
+        { "IfcPlate",            Color.FromHex("#909090c0") },
+        { "IfcSpace",            Color.FromHex("#ffff0040") },
+        { "IfcCovering",         Color.FromHex("#c0b090c0") },
     };
 
-    public static string For(string ifcType) =>
-        Colors.TryGetValue(ifcType, out var c) ? c : "#cccccccc";
+    private static readonly Color Default = Color.FromHex("#cccccccc");
+
+    public static Color For(string ifcType) =>
+        Colors.TryGetValue(ifcType, out var c) ? c : Default;
 }

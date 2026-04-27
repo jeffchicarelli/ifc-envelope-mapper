@@ -94,10 +94,10 @@ public sealed class Demo2EvaluationTests : IfcTestBase
             // TP=green, TN=gray, FP=red (claimed exterior, isn't), FN=orange (missed exterior).
             var color = (c.IsExterior, gt) switch
             {
-                (true,  true)  => "#00ff00",
-                (false, false) => "#888888",
-                (true,  false) => "#ff0000",
-                (false, true)  => "#ff8800",
+                (true,  true)  => Color.Green,
+                (false, false) => Color.FromHex("#888888"),
+                (true,  false) => Color.Red,
+                (false, true)  => Color.FromHex("#ff8800"),
             };
             GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
         }
