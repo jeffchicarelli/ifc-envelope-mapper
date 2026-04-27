@@ -15,7 +15,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 [Trait("Category", "Integration")]
 public sealed class StrategyComparisonTests : IfcTestBase
 {
-    private const double VOXEL_SIZE = 0.50;
+    private const double VOXEL_SIZE = 0.25;
 
     [Fact]
     public void GenerateComparisonTable()

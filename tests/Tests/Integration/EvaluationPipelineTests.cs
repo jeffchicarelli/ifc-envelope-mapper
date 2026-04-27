@@ -33,7 +33,7 @@ public sealed class EvaluationPipelineTests : IfcTestBase
     private const double PRECISION_FLOOR = 0.80;  // currently ~0.849
     private const double RECALL_FLOOR    = 0.85;  // currently ~0.918
 
-    private const double VOXEL_SIZE = 0.50;
+    private const double VOXEL_SIZE = 0.25;
 
     public EvaluationPipelineTests() : base("duplex.ifc") { }
 
