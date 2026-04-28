@@ -1,74 +1,142 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>IFC Debug Viewer</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #e8ecf0; color: #222; font-family: monospace; overflow: hidden; }
-    canvas { display: block; width: 100vw; height: 100vh; }
-    #ui {
-      position: fixed; top: 0; left: 0; right: 0;
-      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-      padding: 8px 12px; background: #00000099; backdrop-filter: blur(4px);
-      z-index: 10;
-    }
-    button {
-      padding: 4px 10px; background: #f5f5f5; color: #222;
-      border: 1px solid #888; border-radius: 4px; cursor: pointer;
-      font-family: monospace; font-size: 12px;
-    }
-    button:hover { background: #ffffff; }
-    button.on { background: #ffd24a; border-color: #b88400; }
-    #status { font-size: 12px; color: #ddd; min-width: 160px; }
-    #layers { display: flex; gap: 6px; flex-wrap: wrap; }
-    .layer-btn { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
-    .layer-btn.wire { background: #3a3a4a; font-style: italic; }
-    .layer-btn.off  { opacity: 0.35; }
-    #clipSlider { width: 180px; accent-color: #ffd24a; }
-    #clipSlider[disabled] { opacity: 0.35; }
-  </style>
-  <!--
-    Import map: resolves bare 'three' + 'three/addons/' specifiers for every
-    module under js/. Must sit in the HTML entry point — import maps are a
-    document-level feature, not inherited by nested modules.
-  -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three":          "https://cdn.jsdelivr.net/npm/three@0.166/build/three.module.js",
-      "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.166/examples/jsm/"
-    }
-  }
-  </script>
+    <meta charset="UTF-8">
+    <title>IFC Debug Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #e8ecf0;
+            color: #222;
+            font-family: monospace;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 8px 12px;
+            background: #00000099;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+
+        button {
+            padding: 4px 10px;
+            background: #f5f5f5;
+            color: #222;
+            border: 1px solid #888;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        button:hover {
+            background: #ffffff;
+        }
+
+        button.on {
+            background: #ffd24a;
+            border-color: #b88400;
+        }
+
+        #status {
+            font-size: 12px;
+            color: #ddd;
+            min-width: 160px;
+        }
+
+        #layers {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .layer-btn {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+        }
+
+        .layer-btn.wire {
+            background: #3a3a4a;
+            font-style: italic;
+        }
+
+        .layer-btn.off {
+            opacity: 0.35;
+        }
+
+        #clipSlider {
+            width: 180px;
+            accent-color: #ffd24a;
+        }
+
+        #clipSlider[disabled] {
+            opacity: 0.35;
+        }
+    </style>
+    <!--
+      Import map: resolves bare 'three' + 'three/addons/' specifiers for every
+      module under js/. Must sit in the HTML entry point — import maps are a
+      document-level feature, not inherited by nested modules.
+    -->
+    <script type="importmap">
+        {
+          "imports": {
+            "three":          "https://cdn.jsdelivr.net/npm/three@0.166/build/three.module.js",
+            "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.166/examples/jsm/"
+          }
+        }
+    </script>
 </head>
 <body>
-  <canvas id="canvas"></canvas>
-  <div id="ui">
+<canvas id="canvas"></canvas>
+<div id="ui">
     <button id="clearBtn">Clear</button>
     <button id="orthoBtn" title="Toggle orthographic / perspective camera">Ortho</button>
-    <button id="shotBtn"  title="Download current view as PNG">PNG</button>
-    <button id="clipBtn"  title="Toggle horizontal section plane">Clip</button>
-    <input type="range" id="clipSlider" min="0" max="1" step="0.01" value="1" disabled
-           title="Section height — keeps everything below the plane">
-    <button id="liveBtn"  title="Resume following new flushes" class="on">Live</button>
-    <input type="range" id="timelineSlider" min="0" max="0" step="1" value="0" disabled
-           title="Scrub through past snapshots captured this session">
+    <button id="shotBtn" title="Download current view as PNG">PNG</button>
+    <button id="clipBtn" title="Toggle horizontal section plane">Clip</button>
+    <input disabled id="clipSlider" max="1" min="0" step="0.01"
+           title="Section height — keeps everything below the plane" type="range"
+           value="1">
+    <button class="on" id="liveBtn" title="Resume following new flushes">Live</button>
+    <input disabled id="timelineSlider" max="0" min="0" step="1"
+           title="Scrub through past snapshots captured this session" type="range"
+           value="0">
     <span id="tlLabel">0/0</span>
     <span id="status">Starting…</span>
     <div id="layers"></div>
-  </div>
+</div>
 
-  <!--
-    All logic lives in js/main.js. Viewer modules:
-      renderer.js  — scene, cameras, controls, render loop, clip plane
-      materials.js — BIM-viewer material upgrade (lit shading + edge overlay)
-      layers.js    — per-layer solid/wireframe/hidden toggle strip
-      picking.js   — click picking + occupants sidecar + highlights
-      main.js      — UI wiring, poll loop, timeline scrubber, PNG export
-    DebugServer serves any file under this directory, so adding a new module
-    only requires the import statement.
-  -->
-  <script type="module" src="/js/main.js"></script>
+<!--
+  All logic lives in js/main.js. Viewer modules:
+    renderer.js  — scene, cameras, controls, render loop, clip plane
+    materials.js — BIM-viewer material upgrade (lit shading + edge overlay)
+    layers.js    — per-layer solid/wireframe/hidden toggle strip
+    picking.js   — click picking + occupants sidecar + highlights
+    main.js      — UI wiring, poll loop, timeline scrubber, PNG export
+  DebugServer serves any file under this directory, so adding a new module
+  only requires the import statement.
+-->
+<script src="/js/main.js" type="module"></script>
 </body>
 </html>

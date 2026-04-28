@@ -19,8 +19,6 @@ dotnet build --configuration Release
 dotnet test  --no-build --configuration Release
 ```
 
-At the time of writing: 5 src projects + 1 test project, 66 tests (64 unit + 2 integration), all green on CI.
-
 ## Run the CLI
 
 ### Standard path (any local disk)
@@ -43,34 +41,41 @@ Project folders use short names; assembly names and namespaces keep the `IfcEnve
 
 ```
 src/
-  Core/                           Domain types, pipeline interfaces, math primitives, extensions.
-    Domain/                         Element/ (BuildingElement, Group, Context),
-                                    Surface/ (Envelope, Facade, Face),
-                                    Voxel/   (VoxelGrid3D, VoxelCoord, VoxelState).
-    Pipeline/                       Loading/   (ModelLoadResult, DefaultElementFilter),
-                                    Detection/ (IDetectionStrategy, IFaceExtractor, DetectionResult, ElementClassification),
-                                    Evaluation/ (DetectionCounts, GroundTruthRecord, EvaluationResult,
-                                                 MetricsCalculator, GroundTruthCsvReader).
-    Extensions/                     6 extension classes — BuildingElement.BoundingBox(),
-                                    Vector3d.FitPlane()/.ToSphere(), DMesh3.Merge()/.ExtractTriangles(),
-                                    Plane3d.ToQuadMesh(), VoxelGrid3D.CubesAt(),
-                                    AxisAlignedBox3d.ToCube()/.ToWireframe().
-  Engine/                         Detection algorithms + visualization.
-    Strategies/                     PcaFaceExtractor, VoxelFloodFillStrategy.
+  Domain/                         Pure business model — no xBIM dependency.
+    Interfaces/                     IElement (+ IIfcEntity, IBoxEntity, IMeshEntity).
+    Surface/                        Envelope, Facade, Face.
+    Voxel/                          VoxelGrid3D, VoxelCoord, VoxelState.
+    Detection/                      DetectionResult, ElementClassification, StrategyConfig.
+    Evaluation/                     DetectionCounts, EvaluationResult, GroundTruthRecord.
+    Services/                       IEnvelopeDetector, IFaceExtractor, IFacadeGrouper.
+    Extensions/                     6 math extension classes (DMesh3, Plane3d, Vector3d,
+                                    AxisAlignedBox3d, VoxelGrid3D, IBoxEntity).
+  Application/                    Orchestration — depends on Domain only.
+    Ports/                          IModelLoader, ModelLoadResult, IBcfWriter,
+                                    IJsonReportWriter, IGroundTruthReader.
+    Reports/                        JsonReportBuilder, BcfBuilder, DetectionReport, BcfPackage.
+    Evaluation/                     EvaluationService, MetricsCalculator.
+  Infrastructure/                 xBIM adapters, detection algorithms, persistence.
+    Ifc/                            Element, Storey, IfcProductContext, IProductEntity.
+    Ifc/Loading/                    XbimModelLoader, ElementFilter,
+                                    IfcLoadException, IfcGeometryException.
+    Detection/                      VoxelFloodFillDetector, RayCastingDetector,
+                                    PcaFaceExtractor, DbscanFacadeGrouper.
+    Persistence/                    JsonReportWriter, BcfWriter,
+                                    GroundTruthCsvReader, GroundTruthGenerator.
     Visualization/                  GeometryDebug ([Conditional("DEBUG")]), Scene,
                                     ViewerHelper, GltfSerializer, DebugShape, Color,
                                     IfcTypePalette, VoxelOccupants, AtomicFile.
-  Ifc/                            xBIM adapter.
-    Loading/                        XbimModelLoader, IfcLoadException, IfcGeometryException.
-    Resolver/                       XbimIfcProductResolver.
-    Evaluation/                     GroundTruthGenerator, EvaluationPipeline.
+    Diagnostics/                    AppLog.
   DebugServer/                    Standalone EXE — out-of-process HTTP viewer (ADR-17).
-                                  Spawned by Engine.Visualization.ViewerHelper; not a managed reference.
-  Cli/                            System.CommandLine entry point — thin wrapper around EvaluationPipeline.
+                                  Spawned by Infrastructure.Visualization.ViewerHelper; not a managed reference.
+  Cli/                            DI wiring + System.CommandLine entry point.
 tools/
   debug-viewer/                   three.js glTF viewer served by DebugServer (ADR-17).
 tests/
-  Tests/                          xUnit + FluentAssertions. 64 unit + 2 integration tests.
+  Domain.Tests/                   Pure unit tests — no xBIM, no IFC files.
+  Infrastructure.Tests/           Unit tests requiring xBIM and IFC fixtures.
+  Integration.Tests/              End-to-end — AirwellDetection, StrategyComparison.
 docs/
   plano.md                        Technical design, ADRs, and roadmap (PT-BR).
 data/
@@ -82,19 +87,14 @@ scripts/
 Dependency direction is unidirectional and acyclic:
 
 ```
-       Core (leaf — domain + math + extensions)
-       ↑       ↑
-       |       |
-     Ifc     Engine (strategies + visualization)
-       ↑       ↑
-       └───┬───┘
-           |
-          Cli
+Cli ──► Application ──► Domain
+  └──► Infrastructure ──► Domain
+                     └──► Application
 
-DebugServer is process-spawned by Engine.Visualization, not a managed dependency.
+DebugServer is process-spawned by Infrastructure.Visualization; not a managed dependency.
 ```
 
-Everything domain-shaped or math-shaped lives in `Core`. Anything that touches xBIM lives in `Ifc`. Detection strategies and the GLB-writing visualization stack live in `Engine`. `Cli` is the thin entry point; `DebugServer` is the standalone helper process.
+`Domain` holds the pure business model with no external library dependencies beyond `geometry4Sharp`. `Application` orchestrates use cases without touching xBIM. `Infrastructure` owns everything that requires xBIM, algorithm implementations, file I/O, and GLB visualization. `Cli` is the DI composition root and thin entry point.
 
 ## Documentation
 

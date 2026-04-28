@@ -2,6 +2,7 @@ using System.Text;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
+using IfcEnvelopeMapper.Ifc.Loading;
 
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -12,7 +13,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // RayCastingEvaluationTests, Demo2EvaluationTests). This test exists to
 // produce a stable artefact the dissertation can quote directly; re-run via
 // `dotnet test` to refresh.
-[Trait("Category", "Integration")]
+[Trait("Category", "Research")]
 public sealed class StrategyComparisonTests : IfcTestBase
 {
     private const double VOXEL_SIZE = 0.25;
@@ -61,7 +62,7 @@ public sealed class StrategyComparisonTests : IfcTestBase
         string gtPath,
         IEnvelopeDetector strategy)
     {
-        var result = EvaluationPipeline.EvaluateDetection(ifcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(ifcPath, gtPath, strategy, new XbimModelLoader());
         return new Row(model, strategyLabel, result.Counts, SkipReason: null);
     }
 

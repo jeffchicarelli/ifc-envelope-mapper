@@ -6,7 +6,7 @@ namespace IfcEnvelopeMapper.Ifc.Domain.Surface;
 /// The full exterior skin of the building — every outward-facing <see cref="Face"/>,
 /// grouped into a single closed mesh. Downstream stages slice the envelope into
 /// per-orientation <see cref="Facade"/>s.
-///
+/// <code>
 ///      ╱────────────╲
 ///     ╱             ╱│        Shell    = DMesh3 wrapping the whole exterior
 ///    ╱  envelope   ╱ │        Faces    = fitted-plane pieces of that shell
@@ -14,7 +14,7 @@ namespace IfcEnvelopeMapper.Ifc.Domain.Surface;
 ///   │             │  ╱
 ///   │             │ ╱
 ///   └─────────────┘╱
-///
+/// </code>
 /// </summary>
 public sealed class Envelope
 {

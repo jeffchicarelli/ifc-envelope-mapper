@@ -5,14 +5,14 @@ namespace IfcEnvelopeMapper.Ifc.Domain.Surface;
 /// <summary>
 /// One oriented slice of an <see cref="Envelope"/> — typically a cardinal wall plus
 /// anything leaning within a small angular tolerance of it (N/E/S/W, plus roof/floor).
-///
+/// <code>
 ///       north facade                       azimuth
 ///       (dominant n̂ ≈ +Y)                (compass bearing
 ///       ┌───────────────┐                 of n̂ projected to
 ///       │   faces: 4    │                 the XY plane, in
 ///       │   elements: 7 │                 degrees from north)
 ///       └───────────────┘
-///
+/// </code>
 /// </summary>
 public sealed class Facade
 {

@@ -1,3 +1,5 @@
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+
 namespace IfcEnvelopeMapper.Engine.Pipeline.JsonReport;
 
 /// <summary>
@@ -20,17 +22,6 @@ public sealed record DetectionReport(
     IReadOnlyList<ElementReport> Elements,
     DateTimeOffset               GeneratedAt,
     double                       DurationSeconds);
-
-/// <summary>
-/// Strategy-specific tuning, captured for reproducibility. Each field is
-/// nullable, so a single record can describe either strategy: voxel populates
-/// <see cref="VoxelSize"/> only; raycast populates the three ray fields.
-/// </summary>
-public sealed record StrategyConfig(
-    double? VoxelSize,
-    int?    NumRays,
-    double? JitterDeg,
-    double? HitRatio);
 
 /// <summary>
 /// Per-element classification row. Sorted by <see cref="GlobalId"/> in the

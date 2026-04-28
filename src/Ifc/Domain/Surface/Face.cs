@@ -6,14 +6,14 @@ namespace IfcEnvelopeMapper.Ifc.Domain.Surface;
 /// A near-planar region of an element's mesh — one "side" of the element, in practice.
 /// A <see cref="Face"/> bundles the source triangles with their best-fit plane so later
 /// stages can reason about orientation without re-scanning the geometry.
-///
+/// <code>
 ///     mesh triangles                    Face
 ///      ┌───────┐                         ┌──────────────────┐
 ///      │△△△△△△│  ── PcaFaceExtractor ──▶│ TriangleIds[…]   │
 ///      │△△△△△△│   groups coplanar tris  │ FittedPlane   ─▶ n̂│
 ///      └───────┘                         │ Area, Centroid   │
 ///                                        └──────────────────┘
-///
+/// </code>
 /// </summary>
 public sealed class Face
 {
