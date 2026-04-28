@@ -24,10 +24,12 @@ namespace IfcEnvelopeMapper.Engine.Pipeline.Detection;
 ///   1) Rasterize: each mesh triangle marks the voxels it intersects as Occupied
 ///      via the SAT test (Akenine-Möller 1997). Occupants are tracked per voxel
 ///      so we can map voxels back to element GlobalIds.
-///   2) GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which
-///      the padded grid guarantees to be outside the model.
-///   3) FillGaps: close 1-voxel holes in the occupied shell caused by imperfect
-///      IFC meshes, then GrowInterior and GrowVoid label the remaining cells.
+///   2) FillGaps: morphological closing — any Unknown voxel sandwiched between
+///      Occupied on opposing face-adjacent axes is promoted to Occupied. Seals
+///      1-voxel cracks between wall/slab meshes before the flood-fill runs.
+///   3) GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which
+///      the padded grid guarantees to be outside the model. GrowInterior and
+///      GrowVoid then label the remaining cells.
 ///   4) Classify: any element occupying a voxel that touches an Exterior voxel
 ///      is itself exterior.
 ///
@@ -58,6 +60,9 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         _faceExtractor = faceExtractor ?? new PcaFaceExtractor();
     }
 
+    public StrategyConfig Config =>
+        new(VoxelSize: _voxelSize, NumRays: null, JitterDeg: null, HitRatio: null);
+
     public DetectionResult Detect(IEnumerable<Element> elements)
     {
         var elementsList = elements.ToList();
@@ -81,8 +86,8 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         GeometryDebug.Send(grid, VoxelState.Occupied);
 #endif
 
-        grid.GrowExterior();
         grid.FillGaps();
+        grid.GrowExterior();
 
 #if DEBUGMESH
         Log.LogInformation("exterior voxels: {Count}", grid.VoxelsByState(VoxelState.Exterior).Count());

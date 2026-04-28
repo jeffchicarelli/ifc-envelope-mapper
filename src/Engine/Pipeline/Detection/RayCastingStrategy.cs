@@ -53,6 +53,10 @@ public sealed class RayCastingStrategy : IEnvelopeDetector
         _faceExtractor = faceExtractor ?? new PcaFaceExtractor();
     }
 
+    public StrategyConfig Config =>
+        new(VoxelSize: null, NumRays: _numRays,
+            JitterDeg: _jitterRad * 180.0 / Math.PI, HitRatio: _hitRatio);
+
     public DetectionResult Detect(IEnumerable<Element> elements)
     {
         var elementsList = elements.ToList();

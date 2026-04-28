@@ -1,4 +1,5 @@
 using System.Text.Json;
+using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Engine.Pipeline.JsonReport;
 
 namespace IfcEnvelopeMapper.Tests.Engine.Pipeline.JsonReport;

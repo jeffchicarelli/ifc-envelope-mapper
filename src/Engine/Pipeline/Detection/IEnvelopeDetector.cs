@@ -9,5 +9,8 @@ namespace IfcEnvelopeMapper.Engine.Pipeline.Detection;
 /// </summary>
 public interface IEnvelopeDetector
 {
+    /// <summary>The runtime parameters this instance was constructed with.</summary>
+    StrategyConfig Config { get; }
+
     DetectionResult Detect(IEnumerable<Element> elements);
 }

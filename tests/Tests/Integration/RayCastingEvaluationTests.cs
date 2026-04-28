@@ -2,6 +2,7 @@ using FluentAssertions.Execution;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+using IfcEnvelopeMapper.Ifc.Loading;
 
 
 #if DEBUG
@@ -43,7 +44,7 @@ public sealed class RayCastingEvaluationTests : IfcTestBase
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy, new XbimModelLoader());
         //EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_RayCasting_ProducesExpectedCounts));
 
         // Assert — AssertionScope reports all four mismatches in one error so
@@ -63,7 +64,7 @@ public sealed class RayCastingEvaluationTests : IfcTestBase
         var strategy = new RayCastingStrategy();
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy, new XbimModelLoader());
 
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(PRECISION_FLOOR);

@@ -1,5 +1,6 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
+using IfcEnvelopeMapper.Ifc.Loading;
 
 
 #if DEBUG
@@ -43,7 +44,7 @@ public sealed class EvaluationPipelineTests : IfcTestBase
         var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy, new XbimModelLoader());
 
         // Assert
         result.Counts.TruePositives.Should().BeInRange(EXPECTED_TP - TOLERANCE, EXPECTED_TP + TOLERANCE);
@@ -60,7 +61,7 @@ public sealed class EvaluationPipelineTests : IfcTestBase
         var strategy = new VoxelFloodFillStrategy(voxelSize: VOXEL_SIZE);
 
         // Act
-        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
+        var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy, new XbimModelLoader());
 
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(PRECISION_FLOOR);

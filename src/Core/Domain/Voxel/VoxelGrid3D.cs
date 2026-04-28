@@ -279,11 +279,18 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>
-    /// Closes 1-voxel gaps in <see cref="VoxelState.Occupied"/> shells caused by
-    /// imperfect IFC meshes. An <see cref="VoxelState.Unknown"/> voxel whose six
-    /// face-adjacent neighbors are all <see cref="VoxelState.Exterior"/> is itself
-    /// flipped to <c>Exterior</c>. Iterates until no change happens.
+    /// Pre-flood morphological closing: seals 1-voxel gaps in <see cref="VoxelState.Occupied"/>
+    /// shells caused by imperfect IFC meshes. An <see cref="VoxelState.Unknown"/> voxel
+    /// sandwiched between <see cref="VoxelState.Occupied"/> voxels on any pair of opposing
+    /// face-adjacent axes (±X, ±Y, or ±Z) is itself marked <see cref="VoxelState.Occupied"/>.
+    /// Must run BEFORE <see cref="GrowExterior"/>.
     /// </summary>
+    /// <remarks>
+    /// Without this pass a sub-voxel gap between two IFC elements (e.g. wall and slab whose
+    /// meshes do not quite touch) renders as a single Unknown voxel. The 26-connected
+    /// <see cref="GrowExterior"/> flood-fill leaks through that gap, incorrectly marking
+    /// interior voxels Exterior and producing false-positive exterior classifications.
+    /// </remarks>
     public void FillGaps()
     {
         bool changed;
@@ -302,12 +309,11 @@ public sealed class VoxelGrid3D
                             continue;
                         }
 
-                        var exteriorNeighbors = Neighbors6(c)
-                           .Count(n => this[n] == VoxelState.Exterior);
-
-                        if (exteriorNeighbors >= 6)
+                        if (IsOccupied(new VoxelCoord(x - 1, y, z)) && IsOccupied(new VoxelCoord(x + 1, y, z)) ||
+                            IsOccupied(new VoxelCoord(x, y - 1, z)) && IsOccupied(new VoxelCoord(x, y + 1, z)) ||
+                            IsOccupied(new VoxelCoord(x, y, z - 1)) && IsOccupied(new VoxelCoord(x, y, z + 1)))
                         {
-                            this[c] = VoxelState.Exterior;
+                            this[c] = VoxelState.Occupied;
                             changed = true;
                         }
                     }
@@ -316,17 +322,6 @@ public sealed class VoxelGrid3D
         } while (changed);
     }
 
-    private IEnumerable<VoxelCoord> Neighbors6(VoxelCoord c)
-    {
-        VoxelCoord[] candidates =
-        [
-            new(c.X - 1, c.Y, c.Z),
-            new(c.X + 1, c.Y, c.Z),
-            new(c.X, c.Y - 1, c.Z),
-            new(c.X, c.Y + 1, c.Z),
-            new(c.X, c.Y, c.Z - 1),
-            new(c.X, c.Y, c.Z + 1)
-        ];
-        return candidates.Where(IsInBounds);
-    }
+    private bool IsOccupied(VoxelCoord c) =>
+        IsInBounds(c) && this[c] == VoxelState.Occupied;
 }

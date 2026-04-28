@@ -63,17 +63,14 @@ public static class DetectCommand
         Console.WriteLine($"Opening: {input.FullName}");
 
         IEnvelopeDetector impl;
-        StrategyConfig     config;
         switch (strategy)
         {
             case "voxel":
-                impl   = new VoxelFloodFillStrategy(voxelSize: voxelSize);
-                config = new StrategyConfig(VoxelSize: voxelSize, NumRays: null, JitterDeg: null, HitRatio: null);
+                impl = new VoxelFloodFillStrategy(voxelSize: voxelSize);
                 Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
                 break;
             case "raycast":
-                impl   = new RayCastingStrategy();
-                config = new StrategyConfig(VoxelSize: null, NumRays: 8, JitterDeg: 5.0, HitRatio: 0.5);
+                impl = new RayCastingStrategy();
                 Console.WriteLine("Running RayCastingStrategy (numRays=8, jitterDeg=5°, hitRatio=0.5)...");
                 break;
             default:
@@ -94,7 +91,7 @@ public static class DetectCommand
             switch (output.Extension.ToLowerInvariant())
             {
                 case ".json":
-                    var report = ReportBuilder.Build(input.FullName, strategy, config, result, sw.Elapsed);
+                    var report = ReportBuilder.Build(input.FullName, strategy, impl.Config, result, sw.Elapsed);
                     JsonReportWriter.Write(report, output.FullName);
                     break;
                 case ".bcf":
