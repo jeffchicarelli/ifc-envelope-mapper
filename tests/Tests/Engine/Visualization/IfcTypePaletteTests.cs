@@ -1,7 +1,7 @@
-using IfcEnvelopeMapper.Engine.Debug;
-using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Visualization;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 
-namespace IfcEnvelopeMapper.Tests.Engine.Debug;
+namespace IfcEnvelopeMapper.Tests.Engine.Visualization;
 
 /// <summary>
 /// Unit tests for <see cref="IfcTypePalette.For"/>. The palette is a small

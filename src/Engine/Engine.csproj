@@ -51,6 +51,10 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Debug\Api\Scene.cs" />
+    <Compile Remove="Debug\IfcTypePalette.cs" />
+  </ItemGroup>
 
   <!--
     Helper binaries: flow DebugServer's output files (DLL + deps.json +

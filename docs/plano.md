@@ -205,7 +205,7 @@ A partir de P4.1, `Element._ctx.Product` (e os equivalentes para Site/Building/S
 |---|---|---|
 | `Core` | Pure: primitives + capability interfaces + extensions. Domain/Interfaces (`IIfcEntity`, `IBoxEntity`, `IMeshEntity`), Domain/Voxel (`VoxelGrid3D`), Domain/Surface (`Envelope`, `Facade`, `Face`), Extensions (math idiomático sobre g4), Diagnostics (`AppLog`). | `geometry4Sharp`, `Microsoft.Extensions.Logging.Abstractions` |
 | `Ifc` | Integração xBIM. `Element`, `Storey`, `Space` em `Ifc/Domain/`; `XbimModelLoader` em `Ifc/Loading/` produz `ModelLoadResult : IDisposable` carregando geometria lazy via closures sobre `IfcStore`. `XbimIfcProductResolver` em `Ifc/Resolver/`. Trocar de lib IFC toca só este projeto. | `Core`, `Xbim.Essentials`, `Xbim.Geometry`, `Xbim.ModelGeometry.Scene` |
-| `Engine` | Pipeline + estratégias + debug. Pipeline em `Engine/Pipeline/{Detection, Evaluation, JsonReport, BcfReport}`. Estratégias (`VoxelFloodFillStrategy`, `RayCastingStrategy`, `PcaFaceExtractor`) em `Engine/Pipeline/Detection/`. Debug instrumentation em `Engine/Debug/{Api, Serialization}` (ADR-17). | `Core`, `Ifc`, `SharpGLTF.Toolkit` |
+| `Engine` | Pipeline + estratégias + debug. Pipeline em `Engine/Pipeline/{Detection, Evaluation, JsonReport, BcfReport}`. Estratégias (`VoxelFloodFillStrategy`, `RayCastingStrategy`, `PcaFaceExtractor`) em `Engine/Pipeline/Detection/`. Debug instrumentation em `Engine/Visualization/{Api, Serialization}` (ADR-17). | `Core`, `Ifc`, `SharpGLTF.Toolkit` |
 | `DebugServer` | EXE standalone (não referência gerenciada). Roda viewer HTTP em processo OS separado para sobreviver ao freeze do debugger `.NET` em breakpoints com `Suspend: All` (ADR-17). | nenhuma |
 | `Cli` | Entry point fino. `Program.cs` faz bootstrap (logger, AppLog, XbimServices) e wiring do `RootCommand`; comandos vivem em `Cli/Commands/` (`DetectCommand`, e P4.2 adiciona `InspectCommand`). | `Core`, `Ifc`, `Engine`, `System.CommandLine`, `Microsoft.Extensions.Logging` |
 | `tests/Tests` | xUnit + FluentAssertions. `IfcTestBase` na raiz centraliza carga + cache de `ModelLoadResult` por (test class, IFC path) e helpers de path (`FindModel`, `GroundTruthPath`, `ResultsPath`). | `Core`, `Ifc`, `Cli`, `Engine` |
@@ -224,7 +224,7 @@ A partir de P4.1, `Element._ctx.Product` (e os equivalentes para Site/Building/S
        |
       Cli  (Cli → Engine + Ifc + Core)
 
-DebugServer é spawned via Process.Start por Engine.Debug.Api.DebugSession.
+DebugServer é spawned via Process.Start por Engine.Visualization.Api.ViewerHelper.
 Não é referência gerenciada — fica fora do grafo de deps.
 ```
 
@@ -853,19 +853,19 @@ Previa runtime `IDebugSink`/`NullDebugSink`/`GltfDebugSink` em projeto separado 
 
 ### ADR-17 — Debug geométrico via `[Conditional("DEBUG")]` + viewer HTTP em processo separado
 
-**Decisão.** Classe estática `GeometryDebug` em `src/Engine/Debug/Api/` com cada método público marcado `[Conditional("DEBUG")]` — em builds Release, todas as chamadas são eliminadas pelo compilador no call site (zero IL, zero overhead, sem null-object pattern). Em builds Debug, cada método acumula shapes via `DebugSession` e serializa para `C:\temp\ifc-debug-output.glb` via atomic write (`.tmp` + `File.Move`) a cada chamada — o GLB está pronto para inspeção a qualquer breakpoint.
+**Decisão.** Classe estática `GeometryDebug` em `src/Engine/Visualization/Api/` com cada método público marcado `[Conditional("DEBUG")]` — em builds Release, todas as chamadas são eliminadas pelo compilador no call site (zero IL, zero overhead, sem null-object pattern). Em builds Debug, cada método acumula shapes via `Scene` e serializa para `C:\temp\ifc-debug-output.glb` via atomic write (`.tmp` + `File.Move`) a cada chamada — o GLB está pronto para inspeção a qualquer breakpoint.
 
 Arquitetura em duas camadas:
-- **Camada A — `GeometryDebug` + `GltfSerializer` (obrigatória).** API de instrumentação chamada direto pelo algoritmo. `Engine/Debug/Api/` (`GeometryDebug`, `Scene`, `ViewerHelper`, `DebugShape`, `Color`) + `Engine/Debug/Serialization/` (`GltfSerializer`, `AtomicFile`, `VoxelOccupants`). SharpGLTF.Toolkit é a dependência.
+- **Camada A — `GeometryDebug` + `GltfSerializer` (obrigatória).** API de instrumentação chamada direto pelo algoritmo. `Engine/Visualization/Api/` (`GeometryDebug`, `Scene`, `ViewerHelper`, `DebugShape`, `Color`) + `Engine/Visualization/Serialization/` (`GltfSerializer`, `AtomicFile`, `VoxelOccupants`). SharpGLTF.Toolkit é a dependência.
 - **Camada B — `DebugServer` em processo OS separado (debug only).** Projeto EXE standalone (`src/DebugServer/`) spawned via `Process.Start` por `ViewerHelper`. `HttpListener` loopback-only em `:5173` serve o HTML de `tools/debug-viewer/` (three.js modular) + o GLB corrente; browser faz polling. Processo separado contorna o freeze do debugger .NET com política `Suspend: All` que congelaria um servidor in-process.
 
-**Localização: `src/Engine/Debug/`** (não `Core`). `Voxels()` depende de `VoxelGrid3D` (Core), mas `GltfSerializer` traz `SharpGLTF.Toolkit` — dependência pesada que pertence a Engine pelo critério "se tem dep pesada, fica fora do Core".
+**Localização: `src/Engine/Visualization/`** (não `Core`). `Voxels()` depende de `VoxelGrid3D` (Core), mas `GltfSerializer` traz `SharpGLTF.Toolkit` — dependência pesada que pertence a Engine pelo critério "se tem dep pesada, fica fora do Core".
 
 **Motivo.** `IDebugSink` (ADR-16 revogada) adicionava DI em construtores, null-sink em produção, fan-out — complexidade desnecessária. `[Conditional("DEBUG")]` é o padrão idiomático do C# para instrumentação de desenvolvimento. GLB (binário auto-contido) em vez de glTF (JSON + .bin) porque o viewer carrega num único fetch. `C:\temp\` em vez de `%TEMP%` porque Chromium bloqueia `AppData\Local\Temp` para File System Access API.
 
 **Consequência.**
 - Strategies e grouper chamam `GeometryDebug.Element(...)`, `GeometryDebug.Voxels(...)` etc. diretamente. Zero `#if DEBUG` no código do algoritmo.
-- `IfcEnvelopeMapper.Debug/` (placeholder original) descartado; código vive em `Engine/Debug/{Api,Serialization}/` + projeto EXE `DebugServer`.
+- `IfcEnvelopeMapper.Debug/` (placeholder original) descartado; código vive em `Engine/Visualization/{Api,Serialization}/` + projeto EXE `DebugServer`.
 - **ADR-07 pode ser absorvida (Fase 7).** Se o debug-viewer evoluir para UX amigável a end-user, Viewer MVP Blazor é descartado e o debug-viewer assume duplo papel (dev + end-user).
 
 ---

@@ -1,4 +1,4 @@
-#define DEBUGMESH
+#undef DEBUGMESH
 #if RELEASE
 #undef DEBUGMESH
 #endif
@@ -7,12 +7,10 @@ using g4;
 using IfcEnvelopeMapper.Ifc.Domain;
 using IfcEnvelopeMapper.Ifc.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
-using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using Microsoft.Extensions.Logging;
 
 #if DEBUGMESH
-using IfcEnvelopeMapper.Engine.Debug;
-using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 #endif
 
 using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
@@ -147,6 +145,17 @@ public sealed class RayCastingStrategy : IEnvelopeDetector
 #endif
 
         var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
+
+#if DEBUGMESH
+        var externalElements = classifications
+                              .Where(c => c.IsExterior)
+                              .Select(c => c.Element)
+                              .ToList();
+
+        GeometryDebug.Send(externalElements, Color.Magenta);
+
+        Log.LogInformation("exterior elements: {Count}", externalElements.Count);
+#endif
 
         Log.LogInformation(
             "Ray casting done: {Ext} exterior / {Int} interior ({Rays} rays cast)",

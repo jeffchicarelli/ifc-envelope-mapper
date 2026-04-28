@@ -2,9 +2,9 @@ using System.Text.Json;
 
 using IfcEnvelopeMapper.Core.Domain.Voxel;
 
-using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 
-namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
+namespace IfcEnvelopeMapper.Engine.Visualization.Serialization;
 
 // Voxel→element occupancy map for the debug viewer's click-pick feature.
 // Emitted as a JSON file next to the GLB, keyed by voxel coordinate

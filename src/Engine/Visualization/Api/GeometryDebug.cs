@@ -2,10 +2,9 @@ using System.Diagnostics;
 using g4;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
-using IfcEnvelopeMapper.Engine.Debug;
 using IfcEnvelopeMapper.Ifc.Domain;
 
-namespace IfcEnvelopeMapper.Engine.Debug.Api;
+namespace IfcEnvelopeMapper.Engine.Visualization.Api;
 
 /// <summary>
 /// Geometric debugger for algorithm development. A pure facade: every public
@@ -82,10 +81,19 @@ public static class GeometryDebug
     // Convenience for the common "show all voxels in state X" pattern. Default
     // colours match the existing semantic palette (occupied = translucent green,
     // exterior = translucent blue, interior = translucent red, void = neutral).
+    //
+    // <paramref name="shell"/> defaults to true: only voxels with at least one
+    // neighbour in a different state are emitted. The interior of a solid block
+    // is invisible to the camera anyway, and shell-only drops voxel count by
+    // ~10× on typical grids (surface of an N-voxel solid scales as N^(2/3)).
+    // Pass <c>shell: false</c> for "every cube" runs (thesis figures, full-set
+    // verification) — at the cost of much larger emissions.
     [Conditional("DEBUG")]
     public static void Send(VoxelGrid3D grid, VoxelState state, Color? color = null)
     {
-        var coords = grid.VoxelsByState(state).ToList();
+        IEnumerable<VoxelCoord> coords = grid.VoxelsByState(state);
+        var coordList = coords.ToList();
+
         var defaultColor = state switch
         {
             VoxelState.Occupied => Color.FromHex("#00aa00c0"),
@@ -94,7 +102,7 @@ public static class GeometryDebug
             VoxelState.Void     => Color.FromHex("#ccccccc0"),
             _                   => Color.White,
         };
-        Add(new MeshShape(grid.CubesAt(coords, shrinkFactor: 0.25),
+        Add(new MeshShape(grid.CubesAt(coordList, shrinkFactor: 0.25),
                           color ?? defaultColor, state.ToString().ToLowerInvariant()));
     }
 
@@ -159,16 +167,46 @@ public static class GeometryDebug
             element.GlobalId));
     }
 
-    // Batch: each element gets its palette colour. Callers wanting a single
-    // override across the batch use the per-element overload in their own
-    // foreach.
+    // Batch: each element gets its palette colour. Buffers all shapes and
+    // flushes once — drops the per-loop encode cost from O(N²) to O(N).
     [Conditional("DEBUG")]
     public static void Send(IEnumerable<Element> elements)
     {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        ViewerHelper.EnsureStarted(Scene.OutputPath, Scene.LaunchServer);
         foreach (var element in elements)
         {
-            Send(element);
+            Scene.AddNoFlush(new MeshShape(
+                element.GetMesh(),
+                IfcTypePalette.For(element.IfcType),
+                element.IfcType,
+                element.GlobalId));
         }
+        Scene.Flush();
+    }
+
+    // Batch with a single colour override (e.g. "highlight all exterior
+    // elements in magenta"). Same single-flush optimisation as the
+    // palette overload.
+    [Conditional("DEBUG")]
+    public static void Send(IEnumerable<Element> elements, Color color)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        ViewerHelper.EnsureStarted(Scene.OutputPath, Scene.LaunchServer);
+        foreach (var element in elements)
+        {
+            Scene.AddNoFlush(new MeshShape(
+                element.GetMesh(), color, element.IfcType, element.GlobalId));
+        }
+        Scene.Flush();
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -183,6 +221,20 @@ public static class GeometryDebug
 
         ViewerHelper.EnsureStarted(Scene.OutputPath, Scene.LaunchServer);
         Scene.Clear();
+    }
+
+    // Force the GLB on disk up to date with the current buffer. Bypasses
+    // the Add throttle. Call at the end of a test or at a breakpoint
+    // when you need the very latest state visible to the viewer.
+    [Conditional("DEBUG")]
+    public static void Flush()
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        Scene.Flush();
     }
 
     // Single internal entry that gates on Enabled, ensures the viewer helper

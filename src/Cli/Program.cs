@@ -1,7 +1,7 @@
 using System.CommandLine;
 using IfcEnvelopeMapper.Cli.Commands;
 using IfcEnvelopeMapper.Core.Diagnostics;
-using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Configuration;
 

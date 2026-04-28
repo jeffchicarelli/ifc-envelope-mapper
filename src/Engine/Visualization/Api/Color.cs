@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 
-namespace IfcEnvelopeMapper.Engine.Debug.Api;
+namespace IfcEnvelopeMapper.Engine.Visualization.Api;
 
 /// <summary>
 /// RGBA colour for debug emissions. Stored as four bytes; equality is by value.

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
 
-namespace IfcEnvelopeMapper.Engine.Debug.Api;
+namespace IfcEnvelopeMapper.Engine.Visualization.Api;
 
 // Process-wide singleton: owns the viewer helper process. Spawned once per
 // .NET process via Interlocked.Exchange race; subsequent calls early-return.
@@ -44,14 +44,14 @@ internal static class ViewerHelper
     {
         try
         {
-            var helperDll  = Path.Combine(AppContext.BaseDirectory, "IfcEnvelopeMapper.Engine.DebugServer.dll");
+            var helperDll  = Path.Combine(AppContext.BaseDirectory, "IfcEnvelopeMapper.DebugServer.dll");
             var viewerHtml = Path.Combine(AppContext.BaseDirectory, "debug-viewer", "index.html");
 
             if (!File.Exists(helperDll) || !File.Exists(viewerHtml))
             {
                 Log.LogWarning(
-                    "[ViewerHelper] viewer skipped — missing helper or HTML next to Debug.dll (helperDll={HelperDllExists}, html={HtmlExists})",
-                    File.Exists(helperDll), File.Exists(viewerHtml));
+                    "[ViewerHelper] viewer skipped — missing helper or HTML in {BaseDirectory} (helperDll={HelperDllExists}, html={HtmlExists})",
+                    AppContext.BaseDirectory, File.Exists(helperDll), File.Exists(viewerHtml));
                 return;
             }
 

@@ -5,7 +5,7 @@ using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Debug.Api;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;

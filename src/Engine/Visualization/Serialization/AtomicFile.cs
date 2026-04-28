@@ -1,4 +1,4 @@
-namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
+namespace IfcEnvelopeMapper.Engine.Visualization.Serialization;
 
 // Atomic-write helpers shared by anything that wants to publish a file
 // readers might be polling (debug GLB, voxel-occupancy JSON). Used by
