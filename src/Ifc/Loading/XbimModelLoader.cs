@@ -85,6 +85,7 @@ public sealed class XbimModelLoader
                 {
                     continue;
                 }
+
                 elements.Add(BuildElement(ctx, ifcElem, context, groupGlobalId: null));
             }
             else
@@ -163,6 +164,7 @@ public sealed class XbimModelLoader
                 case IIfcBuilding b: building ??= b; break;
                 case IIfcSite s: site ??= s; break;
             }
+
             current = current.Decomposes
                              .FirstOrDefault()
                             ?.RelatingObject as IIfcSpatialElement;
@@ -204,13 +206,29 @@ public sealed class XbimModelLoader
         foreach (var instance in context.ShapeInstances()
                                         .Where(si => si.IfcProductLabel == element.EntityLabel))
         {
-            var bb = instance.BoundingBox;
-            minX = Math.Min(minX, bb.Min.X);
-            minY = Math.Min(minY, bb.Min.Y);
-            minZ = Math.Min(minZ, bb.Min.Z);
-            maxX = Math.Max(maxX, bb.Max.X);
-            maxY = Math.Max(maxY, bb.Max.Y);
-            maxZ = Math.Max(maxZ, bb.Max.Z);
+            var local = instance.BoundingBox;
+            var t     = instance.Transformation;
+
+            // XbimShapeInstance.BoundingBox is the geometry's local bbox (before
+            // placement). Transform the 8 corners and union into a world AABB so
+            // the result matches the placed mesh produced by ExtractMesh — which
+            // already applies instance.Transformation per vertex. For rotated
+            // placements this is a conservative AABB enclosing the rotated mesh
+            // AABB; for the common axis-aligned-translation case it's exact.
+            for (var c = 0; c < 8; c++)
+            {
+                var lx = (c & 1) == 0 ? local.Min.X : local.Max.X;
+                var ly = (c & 2) == 0 ? local.Min.Y : local.Max.Y;
+                var lz = (c & 4) == 0 ? local.Min.Z : local.Max.Z;
+                var w  = t.Transform(new XbimPoint3D(lx, ly, lz));
+
+                minX = Math.Min(minX, w.X);
+                minY = Math.Min(minY, w.Y);
+                minZ = Math.Min(minZ, w.Z);
+                maxX = Math.Max(maxX, w.X);
+                maxY = Math.Max(maxY, w.Y);
+                maxZ = Math.Max(maxZ, w.Z);
+            }
             any = true;
         }
 
