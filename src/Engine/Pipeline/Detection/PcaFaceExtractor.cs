@@ -1,5 +1,4 @@
 using g4;
-using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Ifc.Domain;
 using IfcEnvelopeMapper.Ifc.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
