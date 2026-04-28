@@ -1,14 +1,13 @@
 namespace IfcEnvelopeMapper.Domain.Voxel;
 
 /// <summary>
-/// Labels a voxel as it moves through the 3-phase flood fill pipeline:
-/// <c>Unknown → Occupied</c> (rasterization), then <c>Exterior / Interior</c>
-/// (flood fill), then <c>Void</c> rooms (connected-component labelling).
+/// Labels a voxel as it moves through the 3-phase flood fill pipeline: <c>Unknown → Occupied</c> (rasterization), then
+/// <c>Exterior / Interior</c> (flood fill), then <c>Void</c> rooms (connected-component labelling).
 /// </summary>
 public enum VoxelState : byte
 {
     /// <summary>Initial state — not yet processed.</summary>
-    Unknown  = 0,
+    Unknown = 0,
 
     /// <summary>A mesh triangle intersects this voxel.</summary>
     Occupied = 1,
@@ -20,5 +19,5 @@ public enum VoxelState : byte
     Interior = 3,
 
     /// <summary>A distinct interior room; numbered by <c>GrowVoid</c>.</summary>
-    Void     = 4
+    Void = 4
 }

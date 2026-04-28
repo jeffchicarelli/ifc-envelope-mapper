@@ -1,30 +1,44 @@
 namespace IfcEnvelopeMapper.Infrastructure.Visualization.Serialization;
 
-// Atomic-write helpers shared by anything that wants to publish a file
-// readers might be polling (debug GLB, voxel-occupancy JSON). Used by
-// GltfSerializer and VoxelOccupants.
+/// <summary>
+/// Atomic-write helpers shared by anything that wants to publish a file readers might be polling
+/// (debug GLB, voxel-occupancy JSON). Used by <see cref="GltfSerializer"/> and <see cref="VoxelOccupants"/>.
+/// </summary>
 internal static class AtomicFile
 {
-    // File.Move(overwrite:true) occasionally hits transient errors on Windows:
-    //   - UnauthorizedAccessException: something holds the destination open
-    //     without FileShare.Delete (orphan helper inside 2 s watchdog window,
-    //     anti-virus mid-scan, or Google Drive Streaming's filesystem shim).
-    //   - IOException: same flavour from the GDrive shim.
-    //   - FileNotFoundException: the source `.tmp` vanished mid-flight — a
-    //     concurrent Flush from another thread or test raced us and replaced
-    //     the temp file before we could move it.
-    // The first two get 20 x 50 ms = ~1 s of retry, which covers every case
-    // observed so far. A FileNotFoundException is treated as "we already lost
-    // this update, the next Flush will recreate" — return silently because
-    // debug visualization is best-effort by design.
+    /// <summary>
+    /// Moves <paramref name="src"/> to <paramref name="dest"/> with up to 20 retries at 50 ms intervals.
+    /// <c>File.Move(overwrite:true)</c> occasionally hits transient errors on Windows:
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// <see cref="UnauthorizedAccessException"/>: something holds the destination open
+    /// without <c>FileShare.Delete</c> (orphan helper inside 2 s watchdog window, anti-virus mid-scan,
+    /// or Google Drive Streaming's filesystem shim).
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description><see cref="IOException"/>: same flavour from the GDrive shim.</description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <see cref="FileNotFoundException"/>: the source <c>.tmp</c> vanished mid-flight.
+    /// Treated as "we already lost this update, the next Flush will recreate" — returns silently because
+    /// debug visualization is best-effort by design.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// </summary>
     public static void MoveWithRetry(string src, string dest)
     {
         const int attempts = 20;
+
         for (var i = 0; i < attempts; i++)
         {
             try
             {
-                File.Move(src, dest, overwrite: true);
+                File.Move(src, dest, true);
+
                 return;
             }
             catch (FileNotFoundException)

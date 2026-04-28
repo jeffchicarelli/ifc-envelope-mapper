@@ -15,20 +15,14 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     {
         var (eTp, eFp, eFn, eTn) = (Elem(0), Elem(1), Elem(2), Elem(3));
 
-        var classifications = new[]
-        {
-            Classify(eTp, isExterior: true),
-            Classify(eFp, isExterior: true),
-            Classify(eFn, isExterior: false),
-            Classify(eTn, isExterior: false),
-        };
+        var classifications = new[] { Classify(eTp, true), Classify(eFp, true), Classify(eFn, false), Classify(eTn, false) };
 
         var groundTruth = new[]
         {
-            new GroundTruthRecord(eTp.GlobalId, IsExterior: true,  Note: null),
-            new GroundTruthRecord(eFp.GlobalId, IsExterior: false, Note: null),
-            new GroundTruthRecord(eFn.GlobalId, IsExterior: true,  Note: null),
-            new GroundTruthRecord(eTn.GlobalId, IsExterior: false, Note: null),
+            new GroundTruthRecord(eTp.GlobalId, true,  null),
+            new GroundTruthRecord(eFp.GlobalId, false, null),
+            new GroundTruthRecord(eFn.GlobalId, true,  null),
+            new GroundTruthRecord(eTn.GlobalId, false, null)
         };
 
         var counts = MetricsCalculator.Compute(classifications, groundTruth);
@@ -45,8 +39,8 @@ public sealed class MetricsCalculatorTests : IfcTestBase
         // IsExterior == null means "unknown" — must not contribute to any cell.
         var element = Elem(0);
 
-        var classifications = new[] { Classify(element, isExterior: true) };
-        var groundTruth     = new[] { new GroundTruthRecord(element.GlobalId, IsExterior: null, Note: null) };
+        var classifications = new[] { Classify(element, true) };
+        var groundTruth = new[] { new GroundTruthRecord(element.GlobalId, null, null) };
 
         var counts = MetricsCalculator.Compute(classifications, groundTruth);
 
@@ -58,8 +52,8 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     {
         var element = Elem(0);
 
-        var classifications = new[] { Classify(element, isExterior: true) };
-        var groundTruth     = Array.Empty<GroundTruthRecord>();
+        var classifications = new[] { Classify(element, true) };
+        var groundTruth = Array.Empty<GroundTruthRecord>();
 
         var counts = MetricsCalculator.Compute(classifications, groundTruth);
 
@@ -69,9 +63,7 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     [Fact]
     public void Compute_EmptyInputs_ReturnsAllZeroes()
     {
-        var counts = MetricsCalculator.Compute(
-            Array.Empty<ElementClassification>(),
-            Array.Empty<GroundTruthRecord>());
+        var counts = MetricsCalculator.Compute(Array.Empty<ElementClassification>(), Array.Empty<GroundTruthRecord>());
 
         counts.TruePositives.Should().Be(0);
         counts.FalsePositives.Should().Be(0);
@@ -88,8 +80,8 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     {
         var elements = Model.Elements.Take(5).Select(e => (Element)e).ToList();
 
-        var classifications = elements.Select(e => Classify(e, isExterior: true)).ToList();
-        var groundTruth     = elements.Select(e => new GroundTruthRecord(e.GlobalId, true, null)).ToList();
+        var classifications = elements.Select(e => Classify(e, true)).ToList();
+        var groundTruth = elements.Select(e => new GroundTruthRecord(e.GlobalId, true, null)).ToList();
 
         var counts = MetricsCalculator.Compute(classifications, groundTruth);
 
@@ -103,8 +95,8 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     {
         var elements = Model.Elements.Take(3).Select(e => (Element)e).ToList();
 
-        var classifications = elements.Select(e => Classify(e, isExterior: true)).ToList();
-        var groundTruth     = elements.Select(e => new GroundTruthRecord(e.GlobalId, false, null)).ToList();
+        var classifications = elements.Select(e => Classify(e, true)).ToList();
+        var groundTruth = elements.Select(e => new GroundTruthRecord(e.GlobalId, false, null)).ToList();
 
         var counts = MetricsCalculator.Compute(classifications, groundTruth);
 
@@ -113,8 +105,13 @@ public sealed class MetricsCalculatorTests : IfcTestBase
         double.IsNaN(counts.Recall).Should().BeTrue();
     }
 
-    private Element Elem(int index) => (Element)Model.Elements[index];
+    private Element Elem(int index)
+    {
+        return (Element)Model.Elements[index];
+    }
 
-    private static ElementClassification Classify(Element element, bool isExterior) =>
-        new(element, isExterior, Array.Empty<Face>());
+    private static ElementClassification Classify(Element element, bool isExterior)
+    {
+        return new ElementClassification(element, isExterior, Array.Empty<Face>());
+    }
 }

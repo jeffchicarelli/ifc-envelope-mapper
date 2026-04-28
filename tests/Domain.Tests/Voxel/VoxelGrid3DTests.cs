@@ -6,17 +6,19 @@ namespace IfcEnvelopeMapper.Domain.Tests.Voxel;
 public sealed class VoxelGrid3DTests
 {
     // 1x1x1 m cube, 0.5 m voxels → 2x2x2 grid
-    private static VoxelGrid3D MakeGrid() =>
-        new(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1)), voxelSize: 0.5);
+    private static VoxelGrid3D MakeGrid()
+    {
+        return new VoxelGrid3D(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1)), 0.5);
+    }
 
     [Fact]
     public void Constructor_ComputesDimensions()
     {
         var grid = MakeGrid();
 
-        grid.NX.Should().Be(2);
-        grid.NY.Should().Be(2);
-        grid.NZ.Should().Be(2);
+        grid.Nx.Should().Be(2);
+        grid.Ny.Should().Be(2);
+        grid.Nz.Should().Be(2);
     }
 
     [Fact]
@@ -24,11 +26,11 @@ public sealed class VoxelGrid3DTests
     {
         var grid = MakeGrid();
 
-        for (var x = 0; x < grid.NX; x++)
+        for (var x = 0; x < grid.Nx; x++)
         {
-            for (var y = 0; y < grid.NY; y++)
+            for (var y = 0; y < grid.Ny; y++)
             {
-                for (var z = 0; z < grid.NZ; z++)
+                for (var z = 0; z < grid.Nz; z++)
                 {
                     grid[new VoxelCoord(x, y, z)].Should().Be(VoxelState.Unknown);
                 }
@@ -39,7 +41,7 @@ public sealed class VoxelGrid3DTests
     [Fact]
     public void WorldToVoxel_CenterOfFirstVoxel_ReturnsOrigin()
     {
-        var grid   = MakeGrid();
+        var grid = MakeGrid();
         var center = new Vector3d(0.25, 0.25, 0.25);
 
         var coord = grid.WorldToVoxel(center);
@@ -60,7 +62,7 @@ public sealed class VoxelGrid3DTests
     [Fact]
     public void VoxelToCenter_OriginVoxel_ReturnsCenterPoint()
     {
-        var grid   = MakeGrid();
+        var grid = MakeGrid();
 
         var center = grid.VoxelToCenter(new VoxelCoord(0, 0, 0));
 
@@ -72,7 +74,8 @@ public sealed class VoxelGrid3DTests
     [Fact]
     public void Neighbors26_CornerVoxel_Returns7Neighbors()
     {
-        var grid   = MakeGrid();
+        var grid = MakeGrid();
+
         var corner = new VoxelCoord(0, 0, 0);
 
         var neighbors = grid.Neighbors26(corner).ToList();
@@ -85,9 +88,8 @@ public sealed class VoxelGrid3DTests
     public void Neighbors26_CenterVoxel_Returns26Neighbors()
     {
         // 3x3x3 grid so (1,1,1) has all 26 neighbors in bounds
-        var grid   = new VoxelGrid3D(
-            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.5, 1.5, 1.5)),
-            voxelSize: 0.5);
+        var grid = new VoxelGrid3D(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.5, 1.5, 1.5)), 0.5);
+
         var center = new VoxelCoord(1, 1, 1);
 
         var neighbors = grid.Neighbors26(center).ToList();
@@ -98,7 +100,7 @@ public sealed class VoxelGrid3DTests
     [Fact]
     public void AddOccupant_VoxelTracksGlobalId()
     {
-        var grid  = MakeGrid();
+        var grid = MakeGrid();
         var coord = new VoxelCoord(0, 0, 0);
 
         grid.AddOccupant(coord, "wall-001");
@@ -120,6 +122,7 @@ public sealed class VoxelGrid3DTests
     public void VoxelsOccupiedBy_ReturnsOnlyMatchingCoords()
     {
         var grid = MakeGrid();
+
         grid.AddOccupant(new VoxelCoord(0, 0, 0), "wall-001");
         grid.AddOccupant(new VoxelCoord(1, 1, 1), "wall-001");
         grid.AddOccupant(new VoxelCoord(0, 1, 0), "door-002");
@@ -136,9 +139,7 @@ public sealed class VoxelGrid3DTests
     // Interior: (2,2,2) — unreachable from outside through the walls.
     private static VoxelGrid3D MakeHollowBox()
     {
-        var grid = new VoxelGrid3D(
-            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(5, 5, 5)),
-            voxelSize: 1.0);
+        var grid = new VoxelGrid3D(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(5, 5, 5)), 1.0);
 
         for (var x = 1; x <= 3; x++)
         {
@@ -216,9 +217,7 @@ public sealed class VoxelGrid3DTests
     public void FillGaps_UnknownSandwichedByOccupied_BecomesOccupied()
     {
         // (1,1,1) sandwiched by Occupied on all three axis pairs
-        var grid = new VoxelGrid3D(
-            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
-            voxelSize: 1.0);
+        var grid = new VoxelGrid3D(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)), 1.0);
 
         grid[new VoxelCoord(0, 1, 1)] = VoxelState.Occupied;
         grid[new VoxelCoord(2, 1, 1)] = VoxelState.Occupied;
@@ -237,9 +236,7 @@ public sealed class VoxelGrid3DTests
     {
         // One Occupied neighbor on each axis, but never both sides;
         // no axis pair is complete so FillGaps has nothing to close.
-        var grid = new VoxelGrid3D(
-            new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
-            voxelSize: 1.0);
+        var grid = new VoxelGrid3D(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)), 1.0);
 
         grid[new VoxelCoord(0, 1, 1)] = VoxelState.Occupied; // +X only
         grid[new VoxelCoord(1, 0, 1)] = VoxelState.Occupied; // +Y only

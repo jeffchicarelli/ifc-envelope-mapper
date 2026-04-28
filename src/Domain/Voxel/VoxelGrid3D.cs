@@ -6,7 +6,7 @@ namespace IfcEnvelopeMapper.Domain.Voxel;
 /// Uniform 3D grid of cubic voxels covering a world-space bounding box. Each cell
 /// stores a <see cref="VoxelState"/>, the set of element GlobalIds that occupy it,
 /// and a room id assigned by <see cref="GrowVoid"/>.
-///
+/// <code>
 ///   Z↑  ┌──┬──┬──┐
 ///    2  │  │  │  │
 ///       ├──┼──┼──┤    NX × NY × NZ cells, each of side VoxelSize.
@@ -15,55 +15,56 @@ namespace IfcEnvelopeMapper.Domain.Voxel;
 ///    0  │  │  │  │
 ///       └──┴──┴──┘──▶ X
 ///        0  1  2
-///
+/// </code>
 /// The three-phase fill (<see cref="GrowExterior"/> → <see cref="GrowInterior"/>
 /// → <see cref="GrowVoid"/>) is the core of the voxel detection strategy
 /// (van der Vaart 2022).
 /// </summary>
 public sealed class VoxelGrid3D
 {
-    private readonly VoxelState[,,] _states;
+    private static readonly IReadOnlySet<string> _emptySet = new HashSet<string>(StringComparer.Ordinal);
+
     private readonly HashSet<string>[,,] _occupants;
     private readonly int[,,] _roomIds;
+    private readonly VoxelState[,,] _states;
+
+    public VoxelGrid3D(AxisAlignedBox3d bounds, double voxelSize)
+    {
+        Bounds = bounds;
+        VoxelSize = voxelSize;
+
+        Nx = (int)Math.Ceiling(bounds.Width / voxelSize);
+        Ny = (int)Math.Ceiling(bounds.Height / voxelSize);
+        Nz = (int)Math.Ceiling(bounds.Depth / voxelSize);
+
+        _states = new VoxelState[Nx, Ny, Nz];
+        _occupants = new HashSet<string>[Nx, Ny, Nz];
+        _roomIds = new int[Nx, Ny, Nz];
+    }
 
     /// <summary>World-space bounding box the grid was constructed over.</summary>
     public AxisAlignedBox3d Bounds { get; }
+
     /// <summary>Side length of each cubic cell, in world units.</summary>
     public double VoxelSize { get; }
 
     /// <summary>Cell counts along each axis — <c>⌈bounds.Width / VoxelSize⌉</c>, etc.</summary>
-    public int NX { get; }
+    public int Nx { get; }
+
     /// <summary>Cell count along Y — <c>⌈bounds.Height / VoxelSize⌉</c>.</summary>
-    public int NY { get; }
+    public int Ny { get; }
+
     /// <summary>Cell count along Z — <c>⌈bounds.Depth / VoxelSize⌉</c>.</summary>
-    public int NZ { get; }
-
-    public VoxelGrid3D(AxisAlignedBox3d bounds, double voxelSize)
-    {
-        Bounds    = bounds;
-        VoxelSize = voxelSize;
-
-        NX = (int)Math.Ceiling(bounds.Width  / voxelSize);
-        NY = (int)Math.Ceiling(bounds.Height / voxelSize);
-        NZ = (int)Math.Ceiling(bounds.Depth  / voxelSize);
-
-        _states    = new VoxelState[NX, NY, NZ];
-        _occupants = new HashSet<string>[NX, NY, NZ];
-        _roomIds   = new int[NX, NY, NZ];
-    }
+    public int Nz { get; }
 
     /// <summary>Gets or sets the <see cref="VoxelState"/> of the cell at <paramref name="c"/>.</summary>
-    public VoxelState this[VoxelCoord c]
-    {
-        get => _states[c.X, c.Y, c.Z];
-        set => _states[c.X, c.Y, c.Z] = value;
-    }
+    public VoxelState this[VoxelCoord c] { get => _states[c.X, c.Y, c.Z]; set => _states[c.X, c.Y, c.Z] = value; }
 
     /// <summary><c>true</c> when all indices of <paramref name="c"/> fall within the grid extents.</summary>
-    public bool IsInBounds(VoxelCoord c) =>
-        c.X >= 0 && c.X < NX &&
-        c.Y >= 0 && c.Y < NY &&
-        c.Z >= 0 && c.Z < NZ;
+    public bool IsInBounds(VoxelCoord c)
+    {
+        return c.X >= 0 && c.X < Nx && c.Y >= 0 && c.Y < Ny && c.Z >= 0 && c.Z < Nz;
+    }
 
     /// <summary>World-space point → voxel coordinate, or <c>null</c> if the point is outside the grid.</summary>
     public VoxelCoord? WorldToVoxel(Vector3d point)
@@ -72,21 +73,23 @@ public sealed class VoxelGrid3D
         var x = (int)(local.x / VoxelSize);
         var y = (int)(local.y / VoxelSize);
         var z = (int)(local.z / VoxelSize);
+
         var c = new VoxelCoord(x, y, z);
+
         return IsInBounds(c) ? c : null;
     }
 
     /// <summary>World-space center of the voxel at <paramref name="c"/>.</summary>
-    public Vector3d VoxelToCenter(VoxelCoord c) =>
-        Bounds.Min + new Vector3d(
-            (c.X + 0.5) * VoxelSize,
-            (c.Y + 0.5) * VoxelSize,
-            (c.Z + 0.5) * VoxelSize);
+    public Vector3d VoxelToCenter(VoxelCoord c)
+    {
+        return Bounds.Min + new Vector3d((c.X + 0.5) * VoxelSize, (c.Y + 0.5) * VoxelSize, (c.Z + 0.5) * VoxelSize);
+    }
 
     /// <summary>World-space axis-aligned box of the voxel at <paramref name="c"/>.</summary>
     public AxisAlignedBox3d GetVoxelBox(VoxelCoord c)
     {
         var min = Bounds.Min + new Vector3d(c.X * VoxelSize, c.Y * VoxelSize, c.Z * VoxelSize);
+
         return new AxisAlignedBox3d(min, min + new Vector3d(VoxelSize, VoxelSize, VoxelSize));
     }
 
@@ -98,20 +101,19 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>Returns the set of element GlobalIds whose meshes intersect cell <paramref name="c"/>. Empty when no occupants were recorded.</summary>
-    public IReadOnlySet<string> OccupantsOf(VoxelCoord c) =>
-        _occupants[c.X, c.Y, c.Z] ?? (IReadOnlySet<string>)EmptySet;
-
-    private static readonly IReadOnlySet<string> EmptySet =
-        new HashSet<string>(StringComparer.Ordinal);
+    public IReadOnlySet<string> OccupantsOf(VoxelCoord c)
+    {
+        return _occupants[c.X, c.Y, c.Z] ?? (IReadOnlySet<string>)_emptySet;
+    }
 
     /// <summary>All cells that list <paramref name="globalId"/> as an occupant.</summary>
     public IEnumerable<VoxelCoord> VoxelsOccupiedBy(string globalId)
     {
-        for (var x = 0; x < NX; x++)
+        for (var x = 0; x < Nx; x++)
         {
-            for (var y = 0; y < NY; y++)
+            for (var y = 0; y < Ny; y++)
             {
-                for (var z = 0; z < NZ; z++)
+                for (var z = 0; z < Nz; z++)
                 {
                     var occupants = _occupants[x, y, z];
                     if (occupants is not null && occupants.Contains(globalId))
@@ -126,11 +128,11 @@ public sealed class VoxelGrid3D
     /// <summary>All cells currently set to <paramref name="state"/>.</summary>
     public IEnumerable<VoxelCoord> VoxelsByState(VoxelState state)
     {
-        for (var x = 0; x < NX; x++)
+        for (var x = 0; x < Nx; x++)
         {
-            for (var y = 0; y < NY; y++)
+            for (var y = 0; y < Ny; y++)
             {
-                for (var z = 0; z < NZ; z++)
+                for (var z = 0; z < Nz; z++)
                 {
                     if (_states[x, y, z] == state)
                     {
@@ -145,11 +147,11 @@ public sealed class VoxelGrid3D
     public IEnumerable<VoxelCoord> VoxelsInBbox(AxisAlignedBox3d box)
     {
         var min = WorldToVoxel(box.Min) ?? new VoxelCoord(0, 0, 0);
-        var max = WorldToVoxel(box.Max) ?? new VoxelCoord(NX - 1, NY - 1, NZ - 1);
+        var max = WorldToVoxel(box.Max) ?? new VoxelCoord(Nx - 1, Ny - 1, Nz - 1);
 
-        int x0 = Math.Max(0, min.X), x1 = Math.Min(NX - 1, max.X);
-        int y0 = Math.Max(0, min.Y), y1 = Math.Min(NY - 1, max.Y);
-        int z0 = Math.Max(0, min.Z), z1 = Math.Min(NZ - 1, max.Z);
+        int x0 = Math.Max(0, min.X), x1 = Math.Min(Nx - 1, max.X);
+        int y0 = Math.Max(0, min.Y), y1 = Math.Min(Ny - 1, max.Y);
+        int z0 = Math.Max(0, min.Z), z1 = Math.Min(Nz - 1, max.Z);
 
         for (var x = x0; x <= x1; x++)
         {
@@ -178,6 +180,7 @@ public sealed class VoxelGrid3D
                     }
 
                     var n = new VoxelCoord(c.X + dx, c.Y + dy, c.Z + dz);
+
                     if (IsInBounds(n))
                     {
                         yield return n;
@@ -188,12 +191,11 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>
-    /// Phase 1 — 26-connected flood fill from voxel <c>(0,0,0)</c>, marking every
-    /// reachable <c>Unknown</c> cell as <see cref="VoxelState.Exterior"/>.
+    /// Phase 1 — 26-connected flood fill from voxel <c>(0,0,0)</c>, marking every reachable <c>Unknown</c> cell as
+    /// <see cref="VoxelState.Exterior"/>.
     /// </summary>
     /// <remarks>
-    /// Requires <c>(0,0,0)</c> to lie outside all model geometry. This holds when
-    /// the grid is constructed over a bounding box padded by at least
+    /// Requires <c>(0,0,0)</c> to lie outside all model geometry. This holds when the grid is constructed over a bounding box padded by at least
     /// <c>2 × voxelSize</c> on each side.
     /// </remarks>
     public void GrowExterior()
@@ -218,17 +220,16 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>
-    /// Phase 2 — any voxel still <see cref="VoxelState.Unknown"/> after
-    /// <see cref="GrowExterior"/> was never reached from outside, so it must be
-    /// an interior. Must run after <see cref="GrowExterior"/>.
+    /// Phase 2 — any voxel still <see cref="VoxelState.Unknown"/> after <see cref="GrowExterior"/> was never reached from outside, so it must be an
+    /// interior. Must run after <see cref="GrowExterior"/>.
     /// </summary>
     public void GrowInterior()
     {
-        for (var x = 0; x < NX; x++)
+        for (var x = 0; x < Nx; x++)
         {
-            for (var y = 0; y < NY; y++)
+            for (var y = 0; y < Ny; y++)
             {
-                for (var z = 0; z < NZ; z++)
+                for (var z = 0; z < Nz; z++)
                 {
                     var c = new VoxelCoord(x, y, z);
                     if (this[c] == VoxelState.Unknown)
@@ -241,21 +242,24 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>Room number assigned by <see cref="GrowVoid"/>; 0 if this cell is not Interior.</summary>
-    public int GetRoomId(VoxelCoord c) => _roomIds[c.X, c.Y, c.Z];
+    public int GetRoomId(VoxelCoord c)
+    {
+        return _roomIds[c.X, c.Y, c.Z];
+    }
 
     /// <summary>
-    /// Phase 3 — each connected region of <see cref="VoxelState.Interior"/> voxels
-    /// becomes a distinct room numbered from 1 upward. Must run after
+    /// Phase 3 — each connected region of <see cref="VoxelState.Interior"/> voxels becomes a distinct room numbered from 1 upward. Must run after
     /// <see cref="GrowInterior"/>.
     /// </summary>
     public void GrowVoid()
     {
         var roomId = 0;
-        for (var x = 0; x < NX; x++)
+
+        for (var x = 0; x < Nx; x++)
         {
-            for (var y = 0; y < NY; y++)
+            for (var y = 0; y < Ny; y++)
             {
-                for (var z = 0; z < NZ; z++)
+                for (var z = 0; z < Nz; z++)
                 {
                     var seed = new VoxelCoord(x, y, z);
                     if (this[seed] != VoxelState.Interior || _roomIds[x, y, z] != 0)
@@ -273,8 +277,7 @@ public sealed class VoxelGrid3D
                         var current = queue.Dequeue();
                         foreach (var neighbor in Neighbors26(current))
                         {
-                            if (this[neighbor] == VoxelState.Interior
-                                && _roomIds[neighbor.X, neighbor.Y, neighbor.Z] == 0)
+                            if (this[neighbor] == VoxelState.Interior && _roomIds[neighbor.X, neighbor.Y, neighbor.Z] == 0)
                             {
                                 _roomIds[neighbor.X, neighbor.Y, neighbor.Z] = roomId;
                                 queue.Enqueue(neighbor);
@@ -287,29 +290,28 @@ public sealed class VoxelGrid3D
     }
 
     /// <summary>
-    /// Pre-flood morphological closing: seals 1-voxel gaps in <see cref="VoxelState.Occupied"/>
-    /// shells caused by imperfect IFC meshes. An <see cref="VoxelState.Unknown"/> voxel
-    /// sandwiched between <see cref="VoxelState.Occupied"/> voxels on any pair of opposing
-    /// face-adjacent axes (±X, ±Y, or ±Z) is itself marked <see cref="VoxelState.Occupied"/>.
-    /// Must run BEFORE <see cref="GrowExterior"/>.
+    /// Pre-flood morphological closing: seals 1-voxel gaps in <see cref="VoxelState.Occupied"/> shells caused by imperfect IFC meshes. An
+    /// <see cref="VoxelState.Unknown"/> voxel sandwiched between <see cref="VoxelState.Occupied"/> voxels on any pair of opposing face-adjacent axes
+    /// (±X, ±Y, or ±Z) is itself marked <see cref="VoxelState.Occupied"/>. Must run BEFORE <see cref="GrowExterior"/>.
     /// </summary>
     /// <remarks>
-    /// Without this pass a sub-voxel gap between two IFC elements (e.g. wall and slab whose
-    /// meshes do not quite touch) renders as a single Unknown voxel. The 26-connected
-    /// <see cref="GrowExterior"/> flood-fill leaks through that gap, incorrectly marking
-    /// interior voxels Exterior and producing false-positive exterior classifications.
+    /// Without this pass a sub-voxel gap between two IFC elements (e.g. wall and slab whose meshes do not quite touch) renders as a single Unknown
+    /// voxel. The 26-connected <see cref="GrowExterior"/> flood-fill leaks through that gap, incorrectly marking interior voxels Exterior and producing
+    /// false-positive exterior classifications.
     /// </remarks>
     public void FillGaps()
     {
         bool changed;
+
         do
         {
             changed = false;
-            for (var x = 0; x < NX; x++)
+
+            for (var x = 0; x < Nx; x++)
             {
-                for (var y = 0; y < NY; y++)
+                for (var y = 0; y < Ny; y++)
                 {
-                    for (var z = 0; z < NZ; z++)
+                    for (var z = 0; z < Nz; z++)
                     {
                         var c = new VoxelCoord(x, y, z);
                         if (this[c] != VoxelState.Unknown)
@@ -327,9 +329,12 @@ public sealed class VoxelGrid3D
                     }
                 }
             }
-        } while (changed);
+        }
+        while (changed);
     }
 
-    private bool IsOccupied(VoxelCoord c) =>
-        IsInBounds(c) && this[c] == VoxelState.Occupied;
+    private bool IsOccupied(VoxelCoord c)
+    {
+        return IsInBounds(c) && this[c] == VoxelState.Occupied;
+    }
 }

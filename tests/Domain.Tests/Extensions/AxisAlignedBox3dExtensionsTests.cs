@@ -7,13 +7,11 @@ public class AxisAlignedBox3DExtensionsTests
 {
     private const double TOLERANCE = 1e-10;
 
-    private static readonly AxisAlignedBox3d _sampleBox =
-        new(new Vector3d(1, 2, 3), new Vector3d(5, 7, 10));  // W=4, H=5, D=7
+    private static readonly AxisAlignedBox3d _sampleBox = new(new Vector3d(1, 2, 3), new Vector3d(5, 7, 10)); // W=4, H=5, D=7
 
     private static readonly Vector3d[] _expectedCorners =
     {
-        new(1, 2, 3),  new(5, 2, 3),  new(5, 2, 10), new(1, 2, 10),
-        new(1, 7, 3),  new(5, 7, 3),  new(5, 7, 10), new(1, 7, 10),
+        new(1, 2, 3), new(5, 2, 3), new(5, 2, 10), new(1, 2, 10), new(1, 7, 3), new(5, 7, 3), new(5, 7, 10), new(1, 7, 10)
     };
 
     // ───── ToCube ─────
@@ -33,6 +31,7 @@ public class AxisAlignedBox3DExtensionsTests
         var mesh = _sampleBox.ToCube();
 
         var actual = new HashSet<Vector3d>();
+
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {
             actual.Add(mesh.GetVertex(vid));
@@ -78,8 +77,8 @@ public class AxisAlignedBox3DExtensionsTests
 
         var lengths = edges.Select(e => (e.To - e.From).Length).ToList();
 
-        lengths.Count(l => Math.Abs(l - _sampleBox.Width)  < TOLERANCE).Should().Be(4);
+        lengths.Count(l => Math.Abs(l - _sampleBox.Width) < TOLERANCE).Should().Be(4);
         lengths.Count(l => Math.Abs(l - _sampleBox.Height) < TOLERANCE).Should().Be(4);
-        lengths.Count(l => Math.Abs(l - _sampleBox.Depth)  < TOLERANCE).Should().Be(4);
+        lengths.Count(l => Math.Abs(l - _sampleBox.Depth) < TOLERANCE).Should().Be(4);
     }
 }

@@ -10,11 +10,11 @@
 
   <ItemGroup>
     <!-- geometry4Sharp: BcfCamera carries Vector3d coordinates -->
-    <PackageReference Include="geometry4Sharp" Version="1.0.0" />
+    <PackageReference Include="geometry4Sharp" Version="1.0.0"/>
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Domain\Domain.csproj" />
+    <ProjectReference Include="..\Domain\Domain.csproj"/>
   </ItemGroup>
 
 </Project>

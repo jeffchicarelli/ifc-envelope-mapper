@@ -37,8 +37,7 @@ public class DefaultElementFilterTests
     [Fact]
     public void CustomSet_OverridesDefault()
     {
-        var filter = new ElementFilter(
-            new HashSet<string>(StringComparer.Ordinal) { "IfcFooting" });
+        var filter = new ElementFilter(new HashSet<string>(StringComparer.Ordinal) { "IfcFooting" });
 
         filter.Include("IfcFooting").Should().BeTrue();
         filter.Include("IfcWall").Should().BeFalse();
@@ -47,8 +46,7 @@ public class DefaultElementFilterTests
     [Fact]
     public void CustomSet_Empty_ExcludesEverything()
     {
-        var filter = new ElementFilter(
-            new HashSet<string>(StringComparer.Ordinal));
+        var filter = new ElementFilter(new HashSet<string>(StringComparer.Ordinal));
 
         filter.Include("IfcWall").Should().BeFalse();
     }

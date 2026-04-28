@@ -1,6 +1,5 @@
 using g4;
 using IfcEnvelopeMapper.Application.Ports;
-using IfcEnvelopeMapper.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 using Xbim.Common.Geometry;
 using Xbim.Common.XbimExtensions;
@@ -12,12 +11,10 @@ using static IfcEnvelopeMapper.Infrastructure.Diagnostics.AppLog;
 namespace IfcEnvelopeMapper.Infrastructure.Ifc.Loading;
 
 /// <summary>
-/// Loads an IFC file into <see cref="Element"/> instances using <c>Xbim.Ifc</c>
-/// for parsing and <c>Xbim.ModelGeometry.Scene</c> for geometry. Mesh and
-/// bounding box are deferred via <see cref="Lazy{T}"/>; the
-/// <see cref="IfcStore"/> is kept alive by the returned <see cref="ModelLoadResult"/>
-/// until disposed. Throws <see cref="IfcLoadException"/> on open failure and
-/// <see cref="IfcGeometryException"/> on tessellation failure.
+/// Loads an IFC file into <see cref="Element"/> instances using <c>Xbim.Ifc</c> for parsing and <c>Xbim.ModelGeometry.Scene</c> for geometry.
+/// Mesh and bounding box are deferred via <see cref="Lazy{T}"/>; the <see cref="IfcStore"/> is kept alive by the returned
+/// <see cref="ModelLoadResult"/> until disposed. Throws <see cref="IfcLoadException"/> on open failure and <see cref="IfcGeometryException"/> on
+/// tessellation failure.
 /// </summary>
 public sealed class XbimModelLoader : IModelLoader
 {
@@ -33,6 +30,7 @@ public sealed class XbimModelLoader : IModelLoader
     public ModelLoadResult Load(string path)
     {
         IfcStore model;
+
         try
         {
             model = IfcStore.Open(path);
@@ -45,6 +43,7 @@ public sealed class XbimModelLoader : IModelLoader
         Log.LogInformation("Opened IFC: {Path}", path);
 
         Xbim3DModelContext context;
+
         try
         {
             context = new Xbim3DModelContext(model);
@@ -54,10 +53,11 @@ public sealed class XbimModelLoader : IModelLoader
         catch (Exception ex)
         {
             model.Dispose();
+
             throw new IfcGeometryException(path, $"Failed to create geometry context: {path}", ex);
         }
 
-        var elements   = new List<Element>();
+        var elements = new List<Element>();
         var composites = new List<Element>();
 
         foreach (var ifcElem in model.Instances.OfType<IIfcBuildingElement>())
@@ -68,19 +68,18 @@ public sealed class XbimModelLoader : IModelLoader
             }
 
             // Skip elements that are children of an INCLUDED parent — the parent walk picks them up.
-            var isChildOfIncluded = ifcElem.Decomposes
-                .Any(r => r.RelatingObject is IIfcBuildingElement parent
-                          && _filter.Include(parent.GetType().Name));
+            var isChildOfIncluded
+                = ifcElem.Decomposes.Any(r => r.RelatingObject is IIfcBuildingElement parent && _filter.Include(parent.GetType().Name));
+
             if (isChildOfIncluded)
             {
                 continue;
             }
 
-            var ctx      = ExtractContext(ifcElem);
-            var children = ifcElem.IsDecomposedBy
-                .SelectMany(r => r.RelatedObjects.OfType<IIfcBuildingElement>())
-                .Where(c => _filter.Include(c.GetType().Name))
-                .ToList();
+            var ctx = ExtractContext(ifcElem);
+
+            var children = ifcElem.IsDecomposedBy.SelectMany(r => r.RelatedObjects.OfType<IIfcBuildingElement>())
+                                  .Where(c => _filter.Include(c.GetType().Name)).ToList();
 
             if (children.Count == 0)
             {
@@ -89,69 +88,60 @@ public sealed class XbimModelLoader : IModelLoader
                     continue;
                 }
 
-                elements.Add(BuildElement(ctx, ifcElem, context, groupGlobalId: null));
+                elements.Add(BuildElement(ctx, ifcElem, context, null));
             }
             else
             {
-                var groupId      = ifcElem.GlobalId;
+                var groupId = ifcElem.GlobalId;
                 var childElements = new List<Element>();
 
                 foreach (var child in children)
                 {
                     if (!HasShapeInstances(child, context))
                     {
-                        Log.LogWarning(
-                            "Element {GlobalId} ({IfcType}) has no geometry — discarded",
-                            child.GlobalId, child.GetType().Name);
+                        Log.LogWarning("Element {GlobalId} ({IfcType}) has no geometry — discarded", child.GlobalId, child.GetType().Name);
+
                         continue;
                     }
 
-                    var childCtx  = ExtractContext(child);
+                    var childCtx = ExtractContext(child);
+
                     var childElem = BuildElement(childCtx, child, context, groupId);
+
                     childElements.Add(childElem);
                     elements.Add(childElem);
                 }
 
-                var composite = new Element(ctx, BuildLazyMesh(ifcElem, context), BuildLazyBbox(ifcElem, context))
-                {
-                    Children = childElements,
-                };
+                var composite = new Element(ctx, BuildLazyMesh(ifcElem, context), BuildLazyBbox(ifcElem, context)) { Children = childElements };
+
                 composites.Add(composite);
             }
         }
 
-        Log.LogInformation(
-            "Loaded {ElementCount} elements + {CompositeCount} composites from {Path}",
-            elements.Count, composites.Count, path);
+        Log.LogInformation("Loaded {ElementCount} elements + {CompositeCount} composites from {Path}", elements.Count, composites.Count, path);
 
-        return new ModelLoadResult(
-            lifetime:    model,
-            elements:    elements,
-            composites:  composites,
-            filePath:    path,
-            schemaVersion: model.Header.FileSchema.Schemas.FirstOrDefault() ?? string.Empty);
+        return new ModelLoadResult(model, elements, composites, path, model.Header.FileSchema.Schemas.FirstOrDefault() ?? string.Empty);
     }
 
-    private static Element BuildElement(
-        IfcProductContext ctx,
-        IIfcBuildingElement product,
-        Xbim3DModelContext context,
-        string? groupGlobalId)
+    private static Element BuildElement(IfcProductContext ctx, IIfcBuildingElement product, Xbim3DModelContext context, string? groupGlobalId)
     {
-        return new Element(ctx, BuildLazyMesh(product, context), BuildLazyBbox(product, context))
-        {
-            GroupGlobalId = groupGlobalId,
-        };
+        return new Element(ctx, BuildLazyMesh(product, context), BuildLazyBbox(product, context)) { GroupGlobalId = groupGlobalId };
     }
 
     private static Lazy<DMesh3> BuildLazyMesh(IIfcBuildingElement product, Xbim3DModelContext context)
-        => new(() => ExtractMesh(product, context), isThreadSafe: true);
+    {
+        return new Lazy<DMesh3>(() => ExtractMesh(product, context), true);
+    }
 
     private static Lazy<AxisAlignedBox3d> BuildLazyBbox(IIfcBuildingElement product, Xbim3DModelContext context)
-        => new(() => ExtractBbox(product, context), isThreadSafe: true);
+    {
+        return new Lazy<AxisAlignedBox3d>(() => ExtractBbox(product, context), true);
+    }
 
     private static bool HasShapeInstances(IIfcBuildingElement element, Xbim3DModelContext context)
-        => context.ShapeInstances().Any(si => si.IfcProductLabel == element.EntityLabel);
+    {
+        return context.ShapeInstances().Any(si => si.IfcProductLabel == element.EntityLabel);
+    }
 
     private static IfcProductContext ExtractContext(IIfcBuildingElement elem)
     {
@@ -159,22 +149,24 @@ public sealed class XbimModelLoader : IModelLoader
         IIfcBuilding? building = null;
         IIfcBuildingStorey? storey = null;
 
-        var current = elem.ContainedInStructure
-                          .FirstOrDefault()
-                         ?.RelatingStructure;
+        var current = elem.ContainedInStructure.FirstOrDefault()?.RelatingStructure;
 
         while (current is not null)
         {
             switch (current)
             {
-                case IIfcBuildingStorey s: storey ??= s; break;
-                case IIfcBuilding b: building ??= b; break;
-                case IIfcSite s: site ??= s; break;
+                case IIfcBuildingStorey s:
+                    storey ??= s;
+                    break;
+                case IIfcBuilding b:
+                    building ??= b;
+                    break;
+                case IIfcSite s:
+                    site ??= s;
+                    break;
             }
 
-            current = current.Decomposes
-                             .FirstOrDefault()
-                            ?.RelatingObject as IIfcSpatialElement;
+            current = current.Decomposes.FirstOrDefault()?.RelatingObject as IIfcSpatialElement;
         }
 
         return new IfcProductContext(elem, building, storey, site);
@@ -183,12 +175,13 @@ public sealed class XbimModelLoader : IModelLoader
     private static DMesh3 ExtractMesh(IIfcBuildingElement element, Xbim3DModelContext context)
     {
         var mesh = new DMesh3();
-        var instances = context.ShapeInstances()
-                               .Where(si => si.IfcProductLabel == element.EntityLabel);
+
+        var instances = context.ShapeInstances().Where(si => si.IfcProductLabel == element.EntityLabel);
 
         foreach (var instance in instances)
         {
             var geometry = context.ShapeGeometry(instance);
+
             if (geometry is null || string.IsNullOrEmpty(geometry.ShapeData))
             {
                 continue;
@@ -210,11 +203,10 @@ public sealed class XbimModelLoader : IModelLoader
         double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
         var any = false;
 
-        foreach (var instance in context.ShapeInstances()
-                                        .Where(si => si.IfcProductLabel == element.EntityLabel))
+        foreach (var instance in context.ShapeInstances().Where(si => si.IfcProductLabel == element.EntityLabel))
         {
             var local = instance.BoundingBox;
-            var t     = instance.Transformation;
+            var t = instance.Transformation;
 
             // XbimShapeInstance.BoundingBox is the geometry's local bbox (before
             // placement). Transform the 8 corners and union into a world AABB so
@@ -227,7 +219,7 @@ public sealed class XbimModelLoader : IModelLoader
                 var lx = (c & 1) == 0 ? local.Min.X : local.Max.X;
                 var ly = (c & 2) == 0 ? local.Min.Y : local.Max.Y;
                 var lz = (c & 4) == 0 ? local.Min.Z : local.Max.Z;
-                var w  = t.Transform(new XbimPoint3D(lx, ly, lz));
+                var w = t.Transform(new XbimPoint3D(lx, ly, lz));
 
                 minX = Math.Min(minX, w.X);
                 minY = Math.Min(minY, w.Y);
@@ -236,36 +228,33 @@ public sealed class XbimModelLoader : IModelLoader
                 maxY = Math.Max(maxY, w.Y);
                 maxZ = Math.Max(maxZ, w.Z);
             }
+
             any = true;
         }
 
         return any
-            ? new AxisAlignedBox3d(new Vector3d(minX, minY, minZ), new Vector3d(maxX, maxY, maxZ))
-            : new AxisAlignedBox3d(Vector3d.Zero, Vector3d.Zero);
+                   ? new AxisAlignedBox3d(new Vector3d(minX, minY, minZ), new Vector3d(maxX, maxY, maxZ))
+                   : new AxisAlignedBox3d(Vector3d.Zero,                  Vector3d.Zero);
     }
 
-    private static void AppendToMesh(
-        DMesh3 mesh,
-        XbimShapeTriangulation triangulation,
-        XbimMatrix3D transform)
+    private static void AppendToMesh(DMesh3 mesh, XbimShapeTriangulation triangulation, XbimMatrix3D transform)
     {
         var vertexOffset = mesh.VertexCount;
 
         foreach (var vertex in triangulation.Vertices)
         {
             var v = transform.Transform(vertex);
+
             mesh.AppendVertex(new Vector3d(v.X, v.Y, v.Z));
         }
 
         foreach (var face in triangulation.Faces)
         {
             var indices = face.Indices;
+
             for (var i = 0; i < indices.Count; i += 3)
             {
-                mesh.AppendTriangle(new Index3i(
-                    vertexOffset + indices[i],
-                    vertexOffset + indices[i + 1],
-                    vertexOffset + indices[i + 2]));
+                mesh.AppendTriangle(new Index3i(vertexOffset + indices[i], vertexOffset + indices[i + 1], vertexOffset + indices[i + 2]));
             }
         }
     }

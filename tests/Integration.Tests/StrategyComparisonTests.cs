@@ -1,6 +1,5 @@
 using System.Text;
 using IfcEnvelopeMapper.Application.Evaluation;
-using IfcEnvelopeMapper.Domain.Detection;
 using IfcEnvelopeMapper.Domain.Evaluation;
 using IfcEnvelopeMapper.Domain.Services;
 using IfcEnvelopeMapper.Infrastructure.Detection;
@@ -22,53 +21,39 @@ public sealed class StrategyComparisonTests : IfcTestBase
     public void GenerateComparisonTable()
     {
         var duplex = LoadModel("duplex.ifc");
-        var demo2  = LoadModel("demo2.ifc");
+        var demo2 = LoadModel("demo2.ifc");
 
         var rows = new List<Row>
         {
-            EvaluatedRow("duplex", "Voxel",
-                FindModel("duplex.ifc"),
-                GroundTruthPath("duplex.csv"),
-                new VoxelFloodFillDetector(voxelSize: VOXEL_SIZE)),
-
-            EvaluatedRow("duplex", "RayCasting",
-                FindModel("duplex.ifc"),
-                GroundTruthPath("duplex.csv"),
-                new RayCastingDetector()),
+            EvaluatedRow("duplex", "Voxel",      FindModel("duplex.ifc"), GroundTruthPath("duplex.csv"), new VoxelFloodFillDetector(VOXEL_SIZE)),
+            EvaluatedRow("duplex", "RayCasting", FindModel("duplex.ifc"), GroundTruthPath("duplex.csv"), new RayCastingDetector()),
 
             // VoxelFloodFillDetector on demo2 is intentionally not run: the IFC
             // has world coordinates large enough that the bbox-driven VoxelGrid3D
             // overflows .NET's array size limit. Running it would crash the test
             // process. See Demo2EvaluationTests for the documented reason.
-            SkippedRow("demo2", "Voxel",
-                "OOM on georeferenced bbox (extent > .NET array limit)"),
-
-            EvaluatedRow("demo2", "RayCasting",
-                FindModel("demo2.ifc"),
-                GroundTruthPath("demo2.csv"),
-                new RayCastingDetector()),
+            SkippedRow("demo2", "Voxel", "OOM on georeferenced bbox (extent > .NET array limit)"),
+            EvaluatedRow("demo2", "RayCasting", FindModel("demo2.ifc"), GroundTruthPath("demo2.csv"), new RayCastingDetector())
         };
 
-        var markdown   = BuildMarkdown(rows);
+        var markdown = BuildMarkdown(rows);
         var outputPath = ResultsPath("strategy-comparison.md");
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+
         File.WriteAllText(outputPath, markdown);
     }
 
-    private static Row EvaluatedRow(
-        string model,
-        string strategyLabel,
-        string ifcPath,
-        string gtPath,
-        IEnvelopeDetector strategy)
+    private static Row EvaluatedRow(string model, string strategyLabel, string ifcPath, string gtPath, IEnvelopeDetector strategy)
     {
-        var result = EvaluationService.EvaluateDetection(
-            ifcPath, gtPath, strategy, new XbimModelLoader(), new GroundTruthCsvReader());
-        return new Row(model, strategyLabel, result.Counts, SkipReason: null);
+        var result = EvaluationService.EvaluateDetection(ifcPath, gtPath, strategy, new XbimModelLoader(), new GroundTruthCsvReader());
+
+        return new Row(model, strategyLabel, result.Counts, null);
     }
 
     private static Row SkippedRow(string model, string strategyLabel, string reason)
-        => new(model, strategyLabel, Counts: null, SkipReason: reason);
+    {
+        return new Row(model, strategyLabel, null, reason);
+    }
 
     private static string BuildMarkdown(IReadOnlyList<Row> rows)
     {
@@ -83,41 +68,43 @@ public sealed class StrategyComparisonTests : IfcTestBase
         sb.AppendLine();
         sb.AppendLine("| Model   | Strategy   | TP  | FP  | FN  | TN  | Precision | Recall |");
         sb.AppendLine("|---------|------------|-----|-----|-----|-----|-----------|--------|");
+
         foreach (var row in rows)
         {
             if (row.Counts is null)
             {
-                sb.AppendLine(
-                    $"| {row.Model,-7} | {row.StrategyLabel,-10} | —   | —   | —   | —   | (skipped: {row.SkipReason}) | — |");
+                sb.AppendLine($"| {row.Model,-7} | {row.StrategyLabel,-10} | —   | —   | —   | —   | (skipped: {row.SkipReason}) | — |");
             }
             else
             {
                 var c = row.Counts;
+
                 sb.AppendLine(
                     $"| {row.Model,-7} | {row.StrategyLabel,-10} | {c.TruePositives,3} | {c.FalsePositives,3} | {c.FalseNegatives,3} | {c.TrueNegatives,3} | {c.Precision,9:F3} | {c.Recall,6:F3} |");
             }
         }
+
         sb.AppendLine();
 
         sb.AppendLine("## Aggregate (sum of evaluated rows, re-derived P/R)");
         sb.AppendLine();
         sb.AppendLine("| Strategy   | TP  | FP  | FN  | TN  | Precision | Recall |");
         sb.AppendLine("|------------|-----|-----|-----|-----|-----------|--------|");
-        var byStrategy = rows
-            .Where(r => r.Counts is not null)
-            .GroupBy(r => r.StrategyLabel)
-            .OrderBy(g => g.Key, StringComparer.Ordinal);
+
+        var byStrategy = rows.Where(r => r.Counts is not null).GroupBy(r => r.StrategyLabel).OrderBy(g => g.Key, StringComparer.Ordinal);
+
         foreach (var group in byStrategy)
         {
-            var tp        = group.Sum(r => r.Counts!.TruePositives);
-            var fp        = group.Sum(r => r.Counts!.FalsePositives);
-            var fn        = group.Sum(r => r.Counts!.FalseNegatives);
-            var tn        = group.Sum(r => r.Counts!.TrueNegatives);
+            var tp = group.Sum(r => r.Counts!.TruePositives);
+            var fp = group.Sum(r => r.Counts!.FalsePositives);
+            var fn = group.Sum(r => r.Counts!.FalseNegatives);
+            var tn = group.Sum(r => r.Counts!.TrueNegatives);
             var precision = tp + fp == 0 ? double.NaN : (double)tp / (tp + fp);
-            var recall    = tp + fn == 0 ? double.NaN : (double)tp / (tp + fn);
-            sb.AppendLine(
-                $"| {group.Key,-10} | {tp,3} | {fp,3} | {fn,3} | {tn,3} | {precision,9:F3} | {recall,6:F3} |");
+            var recall = tp + fn == 0 ? double.NaN : (double)tp / (tp + fn);
+
+            sb.AppendLine($"| {group.Key,-10} | {tp,3} | {fp,3} | {fn,3} | {tn,3} | {precision,9:F3} | {recall,6:F3} |");
         }
+
         sb.AppendLine();
 
         sb.AppendLine("## Configuration");
@@ -128,9 +115,5 @@ public sealed class StrategyComparisonTests : IfcTestBase
         return sb.ToString();
     }
 
-    private sealed record Row(
-        string           Model,
-        string           StrategyLabel,
-        DetectionCounts? Counts,
-        string?          SkipReason);
+    private sealed record Row(string Model, string StrategyLabel, DetectionCounts? Counts, string? SkipReason);
 }

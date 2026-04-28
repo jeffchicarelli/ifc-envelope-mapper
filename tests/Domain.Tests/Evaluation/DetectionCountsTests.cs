@@ -9,7 +9,7 @@ public class DetectionCountsTests
     [Fact]
     public void Total_SumsAllFourBuckets()
     {
-        var counts = new DetectionCounts(TruePositives: 3, FalsePositives: 2, FalseNegatives: 4, TrueNegatives: 5);
+        var counts = new DetectionCounts(3, 2, 4, 5);
 
         counts.Total.Should().Be(14);
     }
@@ -26,7 +26,7 @@ public class DetectionCountsTests
     public void Precision_NoPredictedPositives_ReturnsNaN()
     {
         // TP + FP = 0 → denominator is zero → undefined.
-        var counts = new DetectionCounts(TruePositives: 0, FalsePositives: 0, FalseNegatives: 7, TrueNegatives: 3);
+        var counts = new DetectionCounts(0, 0, 7, 3);
 
         double.IsNaN(counts.Precision).Should().BeTrue();
     }
@@ -34,7 +34,7 @@ public class DetectionCountsTests
     [Fact]
     public void Precision_PerfectPredictions_IsOne()
     {
-        var counts = new DetectionCounts(TruePositives: 10, FalsePositives: 0, FalseNegatives: 2, TrueNegatives: 5);
+        var counts = new DetectionCounts(10, 0, 2, 5);
 
         counts.Precision.Should().Be(1.0);
     }
@@ -42,7 +42,7 @@ public class DetectionCountsTests
     [Fact]
     public void Precision_OnlyFalsePositives_IsZero()
     {
-        var counts = new DetectionCounts(TruePositives: 0, FalsePositives: 4, FalseNegatives: 0, TrueNegatives: 0);
+        var counts = new DetectionCounts(0, 4, 0, 0);
 
         counts.Precision.Should().Be(0.0);
     }
@@ -51,7 +51,7 @@ public class DetectionCountsTests
     public void Precision_TypicalMix_EqualsTpOverTpPlusFp()
     {
         // 3 / (3 + 1) = 0.75
-        var counts = new DetectionCounts(TruePositives: 3, FalsePositives: 1, FalseNegatives: 2, TrueNegatives: 4);
+        var counts = new DetectionCounts(3, 1, 2, 4);
 
         counts.Precision.Should().Be(0.75);
     }
@@ -62,7 +62,7 @@ public class DetectionCountsTests
     public void Recall_NoActualPositives_ReturnsNaN()
     {
         // TP + FN = 0 → denominator is zero → undefined.
-        var counts = new DetectionCounts(TruePositives: 0, FalsePositives: 2, FalseNegatives: 0, TrueNegatives: 8);
+        var counts = new DetectionCounts(0, 2, 0, 8);
 
         double.IsNaN(counts.Recall).Should().BeTrue();
     }
@@ -70,7 +70,7 @@ public class DetectionCountsTests
     [Fact]
     public void Recall_PerfectRecovery_IsOne()
     {
-        var counts = new DetectionCounts(TruePositives: 10, FalsePositives: 3, FalseNegatives: 0, TrueNegatives: 5);
+        var counts = new DetectionCounts(10, 3, 0, 5);
 
         counts.Recall.Should().Be(1.0);
     }
@@ -78,7 +78,7 @@ public class DetectionCountsTests
     [Fact]
     public void Recall_AllMissed_IsZero()
     {
-        var counts = new DetectionCounts(TruePositives: 0, FalsePositives: 0, FalseNegatives: 4, TrueNegatives: 0);
+        var counts = new DetectionCounts(0, 0, 4, 0);
 
         counts.Recall.Should().Be(0.0);
     }
@@ -87,7 +87,7 @@ public class DetectionCountsTests
     public void Recall_TypicalMix_EqualsTpOverTpPlusFn()
     {
         // 3 / (3 + 2) = 0.6
-        var counts = new DetectionCounts(TruePositives: 3, FalsePositives: 1, FalseNegatives: 2, TrueNegatives: 4);
+        var counts = new DetectionCounts(3, 1, 2, 4);
 
         counts.Recall.Should().Be(0.6);
     }

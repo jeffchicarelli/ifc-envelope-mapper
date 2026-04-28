@@ -12,7 +12,7 @@ public class Plane3DExtensionsTests
     {
         var plane = new Plane3d(Vector3d.AxisZ, Vector3d.Zero);
 
-        var mesh = plane.ToQuadMesh(displaySize: 1.0);
+        var mesh = plane.ToQuadMesh(1.0);
 
         mesh.VertexCount.Should().Be(4);
         mesh.TriangleCount.Should().Be(2);
@@ -24,7 +24,7 @@ public class Plane3DExtensionsTests
         // Oblique plane through a non-origin point — exercises the general case.
         var plane = new Plane3d(new Vector3d(1, 2, 3).Normalized, new Vector3d(4, 5, 6));
 
-        var mesh = plane.ToQuadMesh(displaySize: 3.0);
+        var mesh = plane.ToQuadMesh(3.0);
 
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {
@@ -39,9 +39,10 @@ public class Plane3DExtensionsTests
         // Plane z = 5. Foot of perpendicular from (0,0,0) = (0,0,5) = Normal * Constant.
         var plane = new Plane3d(Vector3d.AxisZ, new Vector3d(0, 0, 5));
 
-        var mesh = plane.ToQuadMesh(displaySize: 2.0);
+        var mesh = plane.ToQuadMesh(2.0);
 
         var centroid = Vector3d.Zero;
+
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {
             centroid += mesh.GetVertex(vid);
@@ -57,6 +58,7 @@ public class Plane3DExtensionsTests
     public void ToQuadMesh_AllFourEdgesHaveLengthEqualToDisplaySize()
     {
         const double displaySize = 2.5;
+
         var plane = new Plane3d(Vector3d.AxisZ, Vector3d.Zero);
 
         var mesh = plane.ToQuadMesh(displaySize);
@@ -79,9 +81,10 @@ public class Plane3DExtensionsTests
         // When |normal·Y| >= 0.99 the method picks X as the seed axis instead of Y.
         var plane = new Plane3d(Vector3d.AxisY, Vector3d.Zero);
 
-        var mesh = plane.ToQuadMesh(displaySize: 1.0);
+        var mesh = plane.ToQuadMesh(1.0);
 
         mesh.VertexCount.Should().Be(4);
+
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {
             Math.Abs(mesh.GetVertex(vid).y).Should().BeLessThan(TOLERANCE);

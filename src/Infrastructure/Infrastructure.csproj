@@ -9,13 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="QuikGraph"          Version="2.5.0" />
-    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
-    <PackageReference Include="Xbim.Essentials"               Version="6.0.587" />
-    <PackageReference Include="Xbim.Geometry.Engine.Interop"  Version="6.3.891-netcore" />
-    <PackageReference Include="Xbim.ModelGeometry.Scene"      Version="6.3.891-netcore" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console"     Version="8.0.0" />
+    <PackageReference Include="QuikGraph" Version="2.5.0"/>
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6"/>
+    <PackageReference Include="Xbim.Essentials" Version="6.0.587"/>
+    <PackageReference Include="Xbim.Geometry.Engine.Interop" Version="6.3.891-netcore"/>
+    <PackageReference Include="Xbim.ModelGeometry.Scene" Version="6.3.891-netcore"/>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0"/>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0"/>
   </ItemGroup>
 
   <!--
@@ -24,13 +24,13 @@
     GltfSerializer, VoxelOccupants) that are not part of the public API.
   -->
   <ItemGroup>
-    <InternalsVisibleTo Include="IfcEnvelopeMapper.Infrastructure.Tests" />
-    <InternalsVisibleTo Include="IfcEnvelopeMapper.Integration.Tests" />
+    <InternalsVisibleTo Include="IfcEnvelopeMapper.Infrastructure.Tests"/>
+    <InternalsVisibleTo Include="IfcEnvelopeMapper.Integration.Tests"/>
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Domain\Domain.csproj" />
-    <ProjectReference Include="..\Application\Application.csproj" />
+    <ProjectReference Include="..\Domain\Domain.csproj"/>
+    <ProjectReference Include="..\Application\Application.csproj"/>
   </ItemGroup>
 
   <!--
@@ -42,7 +42,7 @@
     <ProjectReference Include="..\DebugServer\DebugServer.csproj"
                       ReferenceOutputAssembly="false"
                       SkipGetTargetFrameworkProperties="true"
-                      Private="false" />
+                      Private="false"/>
   </ItemGroup>
 
   <!--
@@ -56,7 +56,7 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="Visualization\Serialization\VoxelOccupants.cs" />
+    <Compile Remove="Visualization\Serialization\VoxelOccupants.cs"/>
   </ItemGroup>
 
   <!--
@@ -67,10 +67,10 @@
           BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems"
           DependsOnTargets="ResolveProjectReferences">
     <ItemGroup>
-      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.dll" />
-      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.deps.json" />
-      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.runtimeconfig.json" />
-      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.pdb" />
+      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.dll"/>
+      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.deps.json"/>
+      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.runtimeconfig.json"/>
+      <_DebugServerBinary Include="..\DebugServer\bin\$(Configuration)\net8.0\IfcEnvelopeMapper.DebugServer.pdb"/>
 
       <Content Include="@(_DebugServerBinary)" Condition="Exists('%(Identity)')">
         <Link>%(FileName)%(Extension)</Link>

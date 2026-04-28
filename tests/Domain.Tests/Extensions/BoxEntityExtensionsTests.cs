@@ -11,7 +11,8 @@ public class BoxEntityExtensionsTests
     [Fact]
     public void BoundingBox_SingleEntity_ReturnsThatEntitysBox()
     {
-        var box      = new AxisAlignedBox3d(new Vector3d(-1, -2, -3), new Vector3d(4, 5, 6));
+        var box = new AxisAlignedBox3d(new Vector3d(-1, -2, -3), new Vector3d(4, 5, 6));
+
         var entities = new[] { new BoxEntityStub(box) };
 
         var result = entities.BoundingBox();
@@ -26,7 +27,7 @@ public class BoxEntityExtensionsTests
         var entities = new[]
         {
             new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1))),
-            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6))),
+            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6)))
         };
 
         var result = entities.BoundingBox();
@@ -41,7 +42,7 @@ public class BoxEntityExtensionsTests
         var entities = new[]
         {
             new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(3, 3, 3))),
-            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(2, 2, 2), new Vector3d(5, 5, 5))),
+            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(2, 2, 2), new Vector3d(5, 5, 5)))
         };
 
         var result = entities.BoundingBox();
@@ -59,13 +60,13 @@ public class BoxEntityExtensionsTests
         var entities = new[]
         {
             new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(-10, -10, -10), new Vector3d(-5, -5, -5))),
-            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(-3,  -3,  -3),  new Vector3d(-1, -1, -1))),
+            new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(-3,  -3,  -3),  new Vector3d(-1, -1, -1)))
         };
 
         var result = entities.BoundingBox();
 
         result.Min.Distance(new Vector3d(-10, -10, -10)).Should().BeLessThan(TOLERANCE);
-        result.Max.Distance(new Vector3d(-1,  -1,  -1)).Should().BeLessThan(TOLERANCE);
+        result.Max.Distance(new Vector3d(-1, -1, -1)).Should().BeLessThan(TOLERANCE);
     }
 
     [Fact]
@@ -74,10 +75,14 @@ public class BoxEntityExtensionsTests
         // Select() yields a non-IList sequence, forcing the `?? .ToList()` fallback.
         // The yields counter proves the source is enumerated only once.
         var yields = 0;
+
         IEnumerable<IBoxEntity> Source()
         {
-            yields++; yield return new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)));
-            yields++; yield return new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(2, 2, 2), new Vector3d(3, 3, 3)));
+            yields++;
+            yield return new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)));
+
+            yields++;
+            yield return new BoxEntityStub(new AxisAlignedBox3d(new Vector3d(2, 2, 2), new Vector3d(3, 3, 3)));
         }
 
         var result = Source().BoundingBox();
@@ -93,14 +98,21 @@ public class BoxEntityExtensionsTests
 
         var act = () => entities.BoundingBox();
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*empty*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*empty*");
     }
 
     private sealed class BoxEntityStub : IBoxEntity
     {
         private readonly AxisAlignedBox3d _box;
-        public BoxEntityStub(AxisAlignedBox3d box) => _box = box;
-        public AxisAlignedBox3d GetBoundingBox() => _box;
+
+        public BoxEntityStub(AxisAlignedBox3d box)
+        {
+            _box = box;
+        }
+
+        public AxisAlignedBox3d GetBoundingBox()
+        {
+            return _box;
+        }
     }
 }

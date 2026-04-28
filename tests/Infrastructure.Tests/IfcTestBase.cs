@@ -10,8 +10,8 @@ using Xbim.Ifc4.Interfaces;
 namespace IfcEnvelopeMapper.Infrastructure.Tests;
 
 /// <summary>
-/// Base class for Infrastructure tests that need a loaded IFC model. Caches the
-/// loaded <see cref="ModelLoadResult"/> per (test-class type, IFC file path).
+/// Base class for Infrastructure tests that need a loaded IFC model. Caches the loaded <see cref="ModelLoadResult"/> per (test-class type, IFC
+/// file path).
 /// </summary>
 public abstract class IfcTestBase
 {
@@ -20,23 +20,16 @@ public abstract class IfcTestBase
 
     static IfcTestBase()
     {
-        var loggerFactory = LoggerFactory.Create
-        (
-            b => b
-                .AddConsole()
-                .SetMinimumLevel(LogLevel.Warning)
-                .AddFilter("IfcEnvelopeMapper", LogLevel.Information)
-        );
+        var loggerFactory
+            = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning).AddFilter("IfcEnvelopeMapper", LogLevel.Information));
 
         AppLog.Configure(loggerFactory);
 
         var glbPath = Environment.GetEnvironmentVariable("IFC_DEBUG_GLB") ?? Path.Combine(Path.GetTempPath(), "ifc-debug-output.glb");
         var launchServer = Environment.GetEnvironmentVariable("IFC_DEBUG_VIEWER") == "true";
+
         GeometryDebug.Configure(glbPath, launchServer);
     }
-
-    protected string IfcPath { get; private set; } = null!;
-    protected ModelLoadResult Model { get; private set; } = null!;
 
     protected IfcTestBase() { }
 
@@ -44,6 +37,9 @@ public abstract class IfcTestBase
     {
         LoadDefault(ifcFileName);
     }
+
+    protected string IfcPath { get; private set; } = null!;
+    protected ModelLoadResult Model { get; private set; } = null!;
 
     protected void LoadDefault(string ifcFileName)
     {
@@ -70,9 +66,8 @@ public abstract class IfcTestBase
 
     protected static string FindModel(string fileName)
     {
-        return FindUpward(Path.Combine("data", "models", fileName))
-               ?? throw new FileNotFoundException(
-                   $"{fileName} not found in any parent of " + Directory.GetCurrentDirectory());
+        return FindUpward(Path.Combine("data", "models", fileName)) ??
+               throw new FileNotFoundException($"{fileName} not found in any parent of " + Directory.GetCurrentDirectory());
     }
 
     protected static string GroundTruthPath(string fileName)
@@ -83,24 +78,28 @@ public abstract class IfcTestBase
             return found;
         }
 
-        var dataDir = FindUpward("data") ?? throw new DirectoryNotFoundException(
-            "data directory not found upward from " + Directory.GetCurrentDirectory());
+        var dataDir = FindUpward("data") ??
+                      throw new DirectoryNotFoundException("data directory not found upward from " + Directory.GetCurrentDirectory());
+
         return Path.Combine(dataDir, "ground-truth", fileName);
     }
 
     protected static string ResultsPath(string fileName)
     {
-        var dataDir = FindUpward("data") ?? throw new DirectoryNotFoundException(
-            "data directory not found upward from " + Directory.GetCurrentDirectory());
+        var dataDir = FindUpward("data") ??
+                      throw new DirectoryNotFoundException("data directory not found upward from " + Directory.GetCurrentDirectory());
+
         return Path.Combine(dataDir, "results", fileName);
     }
 
     private static string? FindUpward(string relative)
     {
         var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+
         while (dir is not null)
         {
             var candidate = Path.Combine(dir.FullName, relative);
+
             if (File.Exists(candidate) || Directory.Exists(candidate))
             {
                 return candidate;
@@ -115,6 +114,7 @@ public abstract class IfcTestBase
     private ModelLoadResult LoadCached(string path)
     {
         var key = (GetType(), path);
+
         lock (_cacheLock)
         {
             if (!_cache.TryGetValue(key, out var model))

@@ -22,42 +22,52 @@ namespace IfcEnvelopeMapper.Infrastructure.Detection;
 /// <summary>
 /// Detects exterior elements by rasterizing the model into a <see cref="VoxelGrid3D"/>
 /// and flood-filling from outside in (van der Vaart 2022).
-///
-///   1) Rasterize: each mesh triangle marks the voxels it intersects as Occupied
-///      via the SAT test (Akenine-Möller 1997). Occupants are tracked per voxel
-///      so we can map voxels back to element GlobalIds.
-///   2) FillGaps: morphological closing — any Unknown voxel sandwiched between
-///      Occupied on opposing face-adjacent axes is promoted to Occupied. Seals
-///      1-voxel cracks between wall/slab meshes before the flood-fill runs.
-///   3) GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which
-///      the padded grid guarantees to be outside the model. GrowInterior and
-///      GrowVoid then label the remaining cells.
-///   4) Classify: any element occupying a voxel that touches an Exterior voxel
-///      is itself exterior.
-///
-///        ┌─────────────────────┐                ┌─────────────────────┐
-///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │     · Unknown
-///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │     █ Occupied
-///        │ · █         █ · · · │   flood fill   │ ◦ █ · · · · █ ◦ ◦ ◦ │     ◦ Exterior
-///        │ · █         █ · · · │  ─────────────▶│ ◦ █ · · · · █ ◦ ◦ ◦ │
-///        │ · █         █ · · · │                │ ◦ █ · · · · █ ◦ ◦ ◦ │
-///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │
-///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │
-///        └─────────────────────┘                └─────────────────────┘
-///
+/// <list type="number">
+/// <item>
+/// <description>
+/// Rasterize: each mesh triangle marks the voxels it intersects as Occupied via the SAT test
+/// (Akenine-Möller 1997). Occupants are tracked per voxel so we can map voxels back to element GlobalIds.
+/// </description>
+/// </item>
+/// <item>
+/// <description>
+/// FillGaps: morphological closing — any Unknown voxel sandwiched between Occupied on opposing
+/// face-adjacent axes is promoted to Occupied. Seals 1-voxel cracks between wall/slab meshes before the flood-fill runs.
+/// </description>
+/// </item>
+/// <item>
+/// <description>
+/// GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which the padded grid
+/// guarantees to be outside the model. GrowInterior and GrowVoid then label the remaining cells.
+/// </description>
+/// </item>
+/// <item>
+/// <description>Classify: any element occupying a voxel that touches an Exterior voxel is itself exterior.</description>
+/// </item>
+/// </list>
+/// <code>
+///     ┌─────────────────────┐                ┌─────────────────────┐
+///     │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │     · Unknown
+///     │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │     █ Occupied
+///     │ · █         █ · · · │   flood fill   │ ◦ █ · · · · █ ◦ ◦ ◦ │     ◦ Exterior
+///     │ · █         █ · · · │  ─────────────▶│ ◦ █ · · · · █ ◦ ◦ ◦ │
+///     │ · █         █ · · · │                │ ◦ █ · · · · █ ◦ ◦ ◦ │
+///     │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │
+///     │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │
+///     └─────────────────────┘                └─────────────────────┘
+/// </code>
 /// </summary>
 /// <remarks>
-/// <c>voxelSize</c> trades accuracy for cost: halving it multiplies rasterization
-/// and flood-fill work by ~8. 0.5 m is the default from van der Vaart (2022) and
-/// resolves typical wall/slab thicknesses in practice.
+/// <c>voxelSize</c> trades accuracy for cost: halving it multiplies rasterization and flood-fill work by ~8. 0.5 m is
+/// the default from van der Vaart (2022) and resolves typical wall/slab thicknesses in practice.
 /// </remarks>
 public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 {
-    private const double DegenerateNormalSq = 1e-20;
-    private const double DegenerateAxisSq   = 1e-10;
+    private const double DEGENERATE_NORMAL_SQ = 1e-20;
+    private const double DEGENERATE_AXIS_SQ = 1e-10;
+    private readonly IFaceExtractor _faceExtractor;
 
     private readonly double _voxelSize;
-    private readonly IFaceExtractor _faceExtractor;
 
     /// <summary>Creates a detector with the given voxel resolution.</summary>
     public VoxelFloodFillDetector(double voxelSize = 0.5, IFaceExtractor? faceExtractor = null)
@@ -67,13 +77,13 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
     }
 
     /// <summary>Returns the active voxel parameters as a serialisable config snapshot.</summary>
-    public StrategyConfig Config =>
-        new(VoxelSize: _voxelSize, NumRays: null, JitterDeg: null, HitRatio: null);
+    public StrategyConfig Config => new(_voxelSize, null, null, null);
 
     /// <inheritdoc/>
     public DetectionResult Detect(IEnumerable<IElement> elements)
     {
         var elementsList = elements.ToList();
+
         if (elementsList.Count == 0)
         {
             return EmptyResult();
@@ -84,6 +94,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 #endif
 
         var grid = BuildGrid(elementsList);
+
         Rasterize(grid, elementsList);
 
 #if DEBUGMESH
@@ -114,6 +125,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 #endif
 
         var exteriorIds = FindExteriorIds(grid);
+
         var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
 
 #if DEBUGMESH
@@ -127,9 +139,8 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         Log.LogInformation("exterior elements: {Count}", externalElements.Count);
 #endif
 
-        return new DetectionResult(
-            new Envelope(new DMesh3(), exteriorFaces),
-            classifications.OrderBy(c => c.Element.GlobalId, StringComparer.Ordinal).ToList());
+        return new DetectionResult(new Envelope(new DMesh3(), exteriorFaces),
+                                   classifications.OrderBy(c => c.Element.GlobalId, StringComparer.Ordinal).ToList());
     }
 
     private VoxelGrid3D BuildGrid(List<IElement> elements)
@@ -138,9 +149,8 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 
         // Pad by 2*voxelSize so the corner voxel (0,0,0) is guaranteed outside the model.
         var pad = 2.0 * _voxelSize;
-        var expanded = new AxisAlignedBox3d(
-            bbox.Min - new Vector3d(pad, pad, pad),
-            bbox.Max + new Vector3d(pad, pad, pad));
+
+        var expanded = new AxisAlignedBox3d(bbox.Min - new Vector3d(pad, pad, pad), bbox.Max + new Vector3d(pad, pad, pad));
 
         return new VoxelGrid3D(expanded, _voxelSize);
     }
@@ -150,6 +160,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         foreach (var element in elements)
         {
             var mesh = element.GetMesh();
+
             for (var tid = 0; tid < mesh.MaxTriangleID; tid++)
             {
                 if (!mesh.IsTriangle(tid))
@@ -163,6 +174,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
                 var v2 = mesh.GetVertex(tri.c);
 
                 var triBbox = new AxisAlignedBox3d(v0, v0);
+
                 triBbox.Contain(v1);
                 triBbox.Contain(v2);
 
@@ -170,9 +182,8 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
                 {
                     var center = grid.VoxelToCenter(coord);
                     var hs = _voxelSize * 0.5;
-                    var voxelBox = new AxisAlignedBox3d(
-                        center - new Vector3d(hs, hs, hs),
-                        center + new Vector3d(hs, hs, hs));
+
+                    var voxelBox = new AxisAlignedBox3d(center - new Vector3d(hs, hs, hs), center + new Vector3d(hs, hs, hs));
 
                     if (!TriangleIntersectsAabb(v0, v1, v2, voxelBox))
                     {
@@ -194,11 +205,11 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
 
-        for (var x = 0; x < grid.NX; x++)
+        for (var x = 0; x < grid.Nx; x++)
         {
-            for (var y = 0; y < grid.NY; y++)
+            for (var y = 0; y < grid.Ny; y++)
             {
-                for (var z = 0; z < grid.NZ; z++)
+                for (var z = 0; z < grid.Nz; z++)
                 {
                     var coord = new VoxelCoord(x, y, z);
                     if (grid[coord] != VoxelState.Occupied)
@@ -224,9 +235,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         return ids;
     }
 
-    private (List<ElementClassification>, List<Face>) Classify(
-        List<IElement> elements,
-        HashSet<string> exteriorIds)
+    private (List<ElementClassification>, List<Face>) Classify(List<IElement> elements, HashSet<string> exteriorIds)
     {
         var classifications = new List<ElementClassification>(elements.Count);
         var allFaces = new List<Face>();
@@ -234,9 +243,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         foreach (var element in elements)
         {
             var isExterior = exteriorIds.Contains(element.GlobalId);
-            var faces = isExterior
-                ? _faceExtractor.Extract(element)
-                : Array.Empty<Face>();
+            var faces = isExterior ? _faceExtractor.Extract(element) : Array.Empty<Face>();
 
             classifications.Add(new ElementClassification(element, isExterior, faces));
 
@@ -255,7 +262,9 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
     {
         // Translate to box-center frame so the AABB becomes [-h, +h] on each axis.
         var ctr = box.Center;
+
         var h = new Vector3d(box.Width * 0.5, box.Height * 0.5, box.Depth * 0.5);
+
         var a = v0 - ctr;
         var b = v1 - ctr;
         var d = v2 - ctr;
@@ -279,12 +288,14 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         var e1 = d - b;
         var e2 = a - d;
         var normal = e0.Cross(e1);
-        if (normal.LengthSquared > DegenerateNormalSq && !OverlapsOnAxis(a, b, d, h, normal))
+
+        if (normal.LengthSquared > DEGENERATE_NORMAL_SQ && !OverlapsOnAxis(a, b, d, h, normal))
         {
             return false;
         }
 
-        Vector3d[] edges   = [e0, e1, e2];
+        Vector3d[] edges = [e0, e1, e2];
+
         Vector3d[] boxAxes = [new(1, 0, 0), new(0, 1, 0), new(0, 0, 1)];
 
         foreach (var edge in edges)
@@ -303,7 +314,7 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 
     private static bool OverlapsOnAxis(Vector3d a, Vector3d b, Vector3d c, Vector3d h, Vector3d axis)
     {
-        if (axis.LengthSquared < DegenerateAxisSq)
+        if (axis.LengthSquared < DEGENERATE_AXIS_SQ)
         {
             return true;
         }
@@ -311,13 +322,13 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
         var pa = a.Dot(axis);
         var pb = b.Dot(axis);
         var pc = c.Dot(axis);
-        var r = h.x * Math.Abs(axis.x) + h.y * Math.Abs(axis.y) + h.z * Math.Abs(axis.z);
+        var r = (h.x * Math.Abs(axis.x)) + (h.y * Math.Abs(axis.y)) + (h.z * Math.Abs(axis.z));
+
         return !(Math.Min(Math.Min(pa, pb), pc) > r || Math.Max(Math.Max(pa, pb), pc) < -r);
     }
 
     private static DetectionResult EmptyResult()
     {
-        return new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()),
-            Array.Empty<ElementClassification>());
+        return new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()), Array.Empty<ElementClassification>());
     }
 }

@@ -13,12 +13,12 @@ public sealed class RayCastingDetectorTests : IfcTestBase
     {
         var elements = Model.Elements;
 
-        var first  = new RayCastingDetector().Detect(elements);
+        var first = new RayCastingDetector().Detect(elements);
         var second = new RayCastingDetector().Detect(elements);
 
         first.Classifications.Count.Should().Be(second.Classifications.Count);
 
-        var firstByGid  = first.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
+        var firstByGid = first.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
         var secondByGid = second.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
 
         firstByGid.Should().Equal(secondByGid);
@@ -33,8 +33,9 @@ public sealed class RayCastingDetectorTests : IfcTestBase
 
         result.Classifications.Count.Should().Be(elements.Count);
 
-        var inputIds  = elements.Select(e => e.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var inputIds = elements.Select(e => e.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
         var outputIds = result.Classifications.Select(c => c.Element.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
+
         outputIds.Should().Equal(inputIds);
     }
 
@@ -53,14 +54,15 @@ public sealed class RayCastingDetectorTests : IfcTestBase
         // ignore would make ray counts unobservable.
         var elements = Model.Elements;
 
-        var sparse = new RayCastingDetector(numRays: 2).Detect(elements);
-        var dense  = new RayCastingDetector(numRays: 16).Detect(elements);
+        var sparse = new RayCastingDetector(2).Detect(elements);
+        var dense = new RayCastingDetector(16).Detect(elements);
 
         sparse.Classifications.Count.Should().Be(elements.Count);
         dense.Classifications.Count.Should().Be(elements.Count);
 
         var sparseByGid = sparse.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
-        var denseByGid  = dense.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
+
+        var denseByGid = dense.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
 
         var anyDiffer = sparseByGid.Any(kvp => denseByGid[kvp.Key] != kvp.Value);
         anyDiffer.Should().BeTrue("numRays must influence ray-count-dependent classifications");

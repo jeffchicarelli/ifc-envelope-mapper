@@ -1,3 +1,4 @@
+using g4;
 using IfcEnvelopeMapper.Infrastructure.Detection;
 using Xbim.Ifc4.Interfaces;
 
@@ -17,8 +18,7 @@ public sealed class PcaFaceExtractorTests : IfcTestBase
         var faces = new PcaFaceExtractor().Extract(wall);
 
         faces.Should().NotBeEmpty();
-        faces.Count.Should().BeGreaterThanOrEqualTo(2,
-            "even a thin wall has front + back surfaces");
+        faces.Count.Should().BeGreaterThanOrEqualTo(2, "even a thin wall has front + back surfaces");
     }
 
     [Fact]
@@ -33,6 +33,7 @@ public sealed class PcaFaceExtractorTests : IfcTestBase
 
         var meshArea = SumTriangleAreas(mesh);
         var faceArea = faces.Sum(f => f.Area);
+
         faceArea.Should().BeApproximately(meshArea, meshArea * 0.05);
     }
 
@@ -46,8 +47,8 @@ public sealed class PcaFaceExtractorTests : IfcTestBase
         foreach (var face in faces)
         {
             var dist = Math.Abs(face.FittedPlane.Normal.Dot(face.Centroid) - face.FittedPlane.Constant);
-            dist.Should().BeLessThan(0.05,
-                "fitted plane should pass through the area-weighted centroid");
+
+            dist.Should().BeLessThan(0.05, "fitted plane should pass through the area-weighted centroid");
         }
     }
 
@@ -60,6 +61,7 @@ public sealed class PcaFaceExtractorTests : IfcTestBase
         var faces = new PcaFaceExtractor().Extract(wall);
 
         var allTids = faces.SelectMany(f => f.TriangleIds).ToList();
+
         allTids.Distinct().Count().Should().Be(allTids.Count, "no triangle should appear in two faces");
     }
 
@@ -73,12 +75,13 @@ public sealed class PcaFaceExtractorTests : IfcTestBase
         faces.Should().NotBeEmpty();
     }
 
-    private static double SumTriangleAreas(g4.DMesh3 mesh)
+    private static double SumTriangleAreas(DMesh3 mesh)
     {
         var area = 0.0;
+
         foreach (var tid in mesh.TriangleIndices())
         {
-            var t  = mesh.GetTriangle(tid);
+            var t = mesh.GetTriangle(tid);
             var va = mesh.GetVertex(t.a);
             var vb = mesh.GetVertex(t.b);
             var vc = mesh.GetVertex(t.c);

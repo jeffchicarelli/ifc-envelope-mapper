@@ -12,13 +12,7 @@ public class Vector3DExtensionsTests
     [Fact]
     public void FitPlane_PointsOnXYPlane_NormalIsParallelToZ()
     {
-        var points = new[]
-        {
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 1, 0),
-            new Vector3d(1, 1, 0),
-        };
+        var points = new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(1, 1, 0) };
 
         var plane = points.FitPlane();
 
@@ -28,13 +22,7 @@ public class Vector3DExtensionsTests
     [Fact]
     public void FitPlane_PointsOnXZPlane_NormalIsParallelToY()
     {
-        var points = new[]
-        {
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 0, 1),
-            new Vector3d(1, 0, 1),
-        };
+        var points = new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 0, 1), new Vector3d(1, 0, 1) };
 
         var plane = points.FitPlane();
 
@@ -46,13 +34,7 @@ public class Vector3DExtensionsTests
     {
         // All four points lie on z = 5. Plane3d uses Hessian form
         // Normal · X = Constant, so signed distance is Normal·P − Constant.
-        var points = new[]
-        {
-            new Vector3d(2, 3, 5),
-            new Vector3d(4, 3, 5),
-            new Vector3d(2, 7, 5),
-            new Vector3d(6, 1, 5),
-        };
+        var points = new[] { new Vector3d(2, 3, 5), new Vector3d(4, 3, 5), new Vector3d(2, 7, 5), new Vector3d(6, 1, 5) };
 
         var plane = points.FitPlane();
 
@@ -68,9 +50,7 @@ public class Vector3DExtensionsTests
     {
         // Select() yields a non-IList sequence, forcing the `?? points.ToList()`
         // fallback inside FitPlane.
-        IEnumerable<Vector3d> lazy = Enumerable.Range(0, 4)
-            .Select(i => new Vector3d(i, i * 2, 0))
-            .Concat(new[] { new Vector3d(-1, 1, 0) });
+        var lazy = Enumerable.Range(0, 4).Select(i => new Vector3d(i, i * 2, 0)).Concat(new[] { new Vector3d(-1, 1, 0) });
 
         var plane = lazy.FitPlane();
 
@@ -82,10 +62,10 @@ public class Vector3DExtensionsTests
     [Fact]
     public void ToSphere_DefaultParameters_HasExpectedVertexAndTriangleCounts()
     {
-        const int rings   = 8;
+        const int rings = 8;
         const int sectors = 12;
 
-        var mesh = Vector3d.Zero.ToSphere(radius: 1.0);
+        var mesh = Vector3d.Zero.ToSphere(1.0);
 
         mesh.VertexCount.Should().Be((rings + 1) * sectors);
         mesh.TriangleCount.Should().Be(2 * rings * sectors);
@@ -95,6 +75,7 @@ public class Vector3DExtensionsTests
     public void ToSphere_AllVerticesAreAtRadiusFromCenter()
     {
         var center = new Vector3d(10, 20, 30);
+
         const double radius = 2.5;
 
         var mesh = center.ToSphere(radius);
@@ -102,6 +83,7 @@ public class Vector3DExtensionsTests
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {
             var distance = (mesh.GetVertex(vid) - center).Length;
+
             distance.Should().BeApproximately(radius, TOLERANCE);
         }
     }
@@ -109,7 +91,7 @@ public class Vector3DExtensionsTests
     [Fact]
     public void ToSphere_CustomRingsAndSectors_ScalesVertexAndTriangleCounts()
     {
-        const int rings   = 4;
+        const int rings = 4;
         const int sectors = 6;
 
         var mesh = Vector3d.Zero.ToSphere(1.0, rings, sectors);
@@ -123,7 +105,7 @@ public class Vector3DExtensionsTests
     {
         var center = new Vector3d(5, 5, 5);
 
-        var mesh = center.ToSphere(radius: 0);
+        var mesh = center.ToSphere(0);
 
         for (var vid = 0; vid < mesh.VertexCount; vid++)
         {

@@ -13,7 +13,7 @@ public sealed class BcfBuilderTests : IfcTestBase
     [Fact]
     public void Build_OneTopicPerExteriorElement()
     {
-        var result = MakeResult(exteriorCount: 3, interiorCount: 2);
+        var result = MakeResult(3, 2);
 
         var package = BcfBuilder.Build(result);
 
@@ -23,7 +23,7 @@ public sealed class BcfBuilderTests : IfcTestBase
     [Fact]
     public void Build_NoExteriorElements_ProducesEmptyPackage()
     {
-        var result = MakeResult(exteriorCount: 0, interiorCount: 5);
+        var result = MakeResult(0, 5);
 
         var package = BcfBuilder.Build(result);
 
@@ -34,12 +34,14 @@ public sealed class BcfBuilderTests : IfcTestBase
     [Fact]
     public void Build_TopicsAreSortedByGlobalIdOrdinal()
     {
-        var result = MakeResult(exteriorCount: 5, interiorCount: 0);
+        var result = MakeResult(5, 0);
 
         var package = BcfBuilder.Build(result);
 
-        var titleIds  = package.Topics.Select(t => ExtractGuidFromTitle(t.Title)).ToList();
+        var titleIds = package.Topics.Select(t => ExtractGuidFromTitle(t.Title)).ToList();
+
         var sortedIds = titleIds.OrderBy(s => s, StringComparer.Ordinal).ToList();
+
         titleIds.Should().Equal(sortedIds);
     }
 
@@ -47,9 +49,9 @@ public sealed class BcfBuilderTests : IfcTestBase
     public void Build_ViewpointReferencesElementIfcGuid()
     {
         var element = Model.Elements[0];
-        var result  = new DetectionResult(
-            envelope:        new Envelope(new DMesh3(), Array.Empty<Face>()),
-            classifications: new[] { new ElementClassification(element, isExterior: true, Array.Empty<Face>()) });
+
+        var result = new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()),
+                                         new[] { new ElementClassification(element, true, Array.Empty<Face>()) });
 
         var package = BcfBuilder.Build(result);
 
@@ -60,7 +62,7 @@ public sealed class BcfBuilderTests : IfcTestBase
     [Fact]
     public void Build_TopicHasConstantTypeStatusAuthor()
     {
-        var result = MakeResult(exteriorCount: 1, interiorCount: 0);
+        var result = MakeResult(1, 0);
 
         var topic = BcfBuilder.Build(result).Topics.Single();
 
@@ -73,9 +75,9 @@ public sealed class BcfBuilderTests : IfcTestBase
     public void Build_TopicTitle_IncludesIfcTypeAndGlobalId()
     {
         var element = Model.Elements[0];
-        var result  = new DetectionResult(
-            envelope:        new Envelope(new DMesh3(), Array.Empty<Face>()),
-            classifications: new[] { new ElementClassification(element, isExterior: true, Array.Empty<Face>()) });
+
+        var result = new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()),
+                                         new[] { new ElementClassification(element, true, Array.Empty<Face>()) });
 
         var topic = BcfBuilder.Build(result).Topics.Single();
 
@@ -87,12 +89,12 @@ public sealed class BcfBuilderTests : IfcTestBase
     public void Build_CameraPosition_IsAwayFromElementCentre()
     {
         var element = Model.Elements[0];
-        var result  = new DetectionResult(
-            envelope:        new Envelope(new DMesh3(), Array.Empty<Face>()),
-            classifications: new[] { new ElementClassification(element, isExterior: true, Array.Empty<Face>()) });
+
+        var result = new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()),
+                                         new[] { new ElementClassification(element, true, Array.Empty<Face>()) });
 
         var topic = BcfBuilder.Build(result).Topics.Single();
-        var bbox  = element.GetMesh().GetBounds();
+        var bbox = element.GetMesh().GetBounds();
 
         topic.Viewpoint.Camera.Position.Distance(bbox.Center).Should().BeGreaterThan(2.0);
         topic.Viewpoint.Camera.Direction.Length.Should().BeApproximately(1.0, 1e-9);
@@ -102,7 +104,7 @@ public sealed class BcfBuilderTests : IfcTestBase
     [Fact]
     public void Build_TopicGuids_AreUnique()
     {
-        var result = MakeResult(exteriorCount: 5, interiorCount: 0);
+        var result = MakeResult(5, 0);
 
         var topics = BcfBuilder.Build(result).Topics;
 
@@ -112,20 +114,18 @@ public sealed class BcfBuilderTests : IfcTestBase
 
     private DetectionResult MakeResult(int exteriorCount, int interiorCount)
     {
-        var elements        = Model.Elements.Take(exteriorCount + interiorCount).ToList();
-        var classifications = elements
-            .Select((e, i) => new ElementClassification(e, isExterior: i < exteriorCount, Array.Empty<Face>()))
-            .ToList();
+        var elements = Model.Elements.Take(exteriorCount + interiorCount).ToList();
 
-        return new DetectionResult(
-            envelope:        new Envelope(new DMesh3(), Array.Empty<Face>()),
-            classifications: classifications);
+        var classifications = elements.Select((e, i) => new ElementClassification(e, i < exteriorCount, Array.Empty<Face>())).ToList();
+
+        return new DetectionResult(new Envelope(new DMesh3(), Array.Empty<Face>()), classifications);
     }
 
     private static string ExtractGuidFromTitle(string title)
     {
         // Title format: "Exterior: <IfcType> <GlobalId>". GlobalId is the last token.
         var parts = title.Split(' ');
+
         return parts[^1];
     }
 }

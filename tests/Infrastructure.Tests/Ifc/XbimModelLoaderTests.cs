@@ -21,19 +21,17 @@ public sealed class XbimModelLoaderTests : IfcTestBase
     [Fact]
     public void Load_Duplex_AllElementsHaveGeometry()
     {
-        Model.Elements.Should().AllSatisfy(e =>
-            e.GetMesh().TriangleCount.Should().BeGreaterThan(0));
+        Model.Elements.Should().AllSatisfy(e => e.GetMesh().TriangleCount.Should().BeGreaterThan(0));
     }
 
     [Fact]
     public void Load_FileNotFound_ThrowsIfcLoadException()
     {
-        var loader  = new XbimModelLoader();
+        var loader = new XbimModelLoader();
         var badPath = Path.Combine(Path.GetTempPath(), "nonexistent.ifc");
 
         var act = () => loader.Load(badPath);
 
-        act.Should().Throw<IfcLoadException>()
-           .Which.ModelPath.Should().Be(badPath);
+        act.Should().Throw<IfcLoadException>().Which.ModelPath.Should().Be(badPath);
     }
 }

@@ -4,24 +4,17 @@ using IfcEnvelopeMapper.Domain.Evaluation;
 namespace IfcEnvelopeMapper.Application.Evaluation;
 
 /// <summary>
-/// Turns a set of predicted <see cref="ElementClassification"/>s plus a ground-truth
-/// table into <see cref="DetectionCounts"/>. Only records with an explicit true/false
-/// label contribute; <c>IsExterior == null</c> rows are skipped. Classifications
-/// whose <c>GlobalId</c> is not present in the ground truth are also skipped.
+/// Turns a set of predicted <see cref="ElementClassification"/>s plus a ground-truth table into <see cref="DetectionCounts"/>. Only records
+/// with an explicit true/false label contribute; <c>IsExterior == null</c> rows are skipped. Classifications whose <c>GlobalId</c> is not present in
+/// the ground truth are also skipped.
 /// </summary>
 public static class MetricsCalculator
 {
     /// <summary>Computes confusion-matrix counts by matching each classification to the ground-truth table by <c>GlobalId</c>.</summary>
-    public static DetectionCounts Compute(
-        IReadOnlyList<ElementClassification> classifications,
-        IReadOnlyList<GroundTruthRecord> groundTruth)
+    public static DetectionCounts Compute(IReadOnlyList<ElementClassification> classifications, IReadOnlyList<GroundTruthRecord> groundTruth)
     {
-        var gtByGlobalId = groundTruth
-            .Where(r => r.IsExterior.HasValue)
-            .ToDictionary(
-                r => r.GlobalId,
-                r => r.IsExterior!.Value,
-                StringComparer.Ordinal);
+        var gtByGlobalId = groundTruth.Where(r => r.IsExterior.HasValue)
+                                      .ToDictionary(r => r.GlobalId, r => r.IsExterior!.Value, StringComparer.Ordinal);
 
         var tp = 0;
         var fp = 0;

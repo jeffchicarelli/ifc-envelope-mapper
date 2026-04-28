@@ -6,21 +6,19 @@ using IfcEnvelopeMapper.Infrastructure.Visualization.Api;
 
 namespace IfcEnvelopeMapper.Infrastructure.Visualization.Serialization;
 
-// Voxel→element occupancy map for the debug viewer's click-pick feature.
-// Emitted as a JSON file next to the GLB, keyed by voxel coordinate
-// (sparse — only cells with ≥1 occupant). Lets the viewer translate a
-// clicked voxel cube into the IFC elements that rasterized into it.
-//
-// Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op)
-// and derives its output path from <c>Scene.OutputPath</c> so per-flow
-// AsyncLocal isolation gives each xunit test method its own file — no
-// cross-test races on the shared default `C:\temp` location.
-//
-// Atomic writes match the GLB flush pattern: tmp + AtomicFile.MoveWithRetry
-// so the viewer's pollers never trip on a mid-flight swap.
+/// <summary>
+/// Voxel→element occupancy map for the debug viewer's click-pick feature. Emitted as a JSON file next to the
+/// GLB, keyed by voxel coordinate (sparse — only cells with ≥1 occupant). Lets the viewer translate a clicked
+/// voxel cube into the IFC elements that rasterized into it.
+/// Honours <see cref="GeometryDebug.Enabled"/> (CLI sets it false → no-op) and derives its output path from
+/// <c>Scene.OutputPath</c> so per-flow AsyncLocal isolation gives each xunit test method its own file — no
+/// cross-test races on the shared default location.
+/// Atomic writes match the GLB flush pattern: tmp + <see cref="AtomicFile.MoveWithRetry"/> so the viewer's
+/// pollers never trip on a mid-flight swap.
+/// </summary>
 internal static class VoxelOccupants
 {
-    // Emits { voxelSize, origin, nx, ny, nz, occupants: { "x,y,z": [...ids] } }.
+    /// <summary>Emits <c>{ voxelSize, origin, nx, ny, nz, occupants: { "x,y,z": [...ids] } }</c> as JSON.</summary>
     public static void Write(VoxelGrid3D grid)
     {
         if (!GeometryDebug.Enabled)

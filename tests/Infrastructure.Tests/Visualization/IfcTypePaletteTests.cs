@@ -5,7 +5,7 @@ namespace IfcEnvelopeMapper.Infrastructure.Tests.Visualization;
 
 public class IfcTypePaletteTests
 {
-    private static readonly Color Default = Color.FromHex("#cccccccc");
+    private static readonly Color _default = Color.FromHex("#cccccccc");
 
     [Theory]
     [InlineData("IfcWall")]
@@ -19,7 +19,7 @@ public class IfcTypePaletteTests
         var color = IfcTypePalette.For(ifcType);
 
         // Known types resolve to entries in the table — anything other than the default fallback.
-        color.Should().NotBe(Default);
+        color.Should().NotBe(_default);
     }
 
     [Fact]
@@ -27,14 +27,14 @@ public class IfcTypePaletteTests
     {
         var color = IfcTypePalette.For("IfcSomethingUnsupported");
 
-        color.Should().Be(Default);
+        color.Should().Be(_default);
     }
 
     [Fact]
     public void For_LookupIsCaseInsensitive()
     {
-        var lower  = IfcTypePalette.For("ifcwall");
-        var upper  = IfcTypePalette.For("IFCWALL");
+        var lower = IfcTypePalette.For("ifcwall");
+        var upper = IfcTypePalette.For("IFCWALL");
         var pascal = IfcTypePalette.For("IfcWall");
 
         lower.Should().Be(pascal);
@@ -45,11 +45,11 @@ public class IfcTypePaletteTests
     public void For_GlazingTypes_AreTranslucent()
     {
         // Documented contract: glazing types carry alpha < 0xFF.
-        var window      = IfcTypePalette.For("IfcWindow");
+        var window = IfcTypePalette.For("IfcWindow");
         var curtainWall = IfcTypePalette.For("IfcCurtainWall");
 
-        window.A.Should().BeLessThan((byte)0xFF);
-        curtainWall.A.Should().BeLessThan((byte)0xFF);
+        window.A.Should().BeLessThan(0xFF);
+        curtainWall.A.Should().BeLessThan(0xFF);
     }
 
     [Fact]
@@ -58,12 +58,12 @@ public class IfcTypePaletteTests
         // IfcSpace renders as yellow @ alpha 0x40.
         var color = IfcTypePalette.For("IfcSpace");
 
-        color.A.Should().BeLessThan((byte)0x80);
+        color.A.Should().BeLessThan(0x80);
     }
 
     [Fact]
     public void For_NullOrEmpty_ReturnsDefaultWithoutThrowing()
     {
-        IfcTypePalette.For(string.Empty).Should().Be(Default);
+        IfcTypePalette.For(string.Empty).Should().Be(_default);
     }
 }

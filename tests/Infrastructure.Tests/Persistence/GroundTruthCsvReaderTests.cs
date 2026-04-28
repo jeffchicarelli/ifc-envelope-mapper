@@ -18,6 +18,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     private IReadOnlyList<GroundTruthRecord> ReadFromContent(string content)
     {
         File.WriteAllText(_tempPath, content);
+
         return new GroundTruthCsvReader().Read(_tempPath);
     }
 
@@ -60,11 +61,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_TriStateLabels_AreParsedToBoolNullable()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,true,\n" +
-            "b,false,\n" +
-            "c,unknown,\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,true,\n" + "b,false,\n" + "c,unknown,\n";
 
         var records = ReadFromContent(content);
 
@@ -77,11 +74,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_IsExteriorIsCaseInsensitive()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,TRUE,\n" +
-            "b,False,\n" +
-            "c,Unknown,\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,TRUE,\n" + "b,False,\n" + "c,Unknown,\n";
 
         var records = ReadFromContent(content);
 
@@ -93,9 +86,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_InvalidIsExterior_Throws()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,maybe,\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,maybe,\n";
 
         var act = () => ReadFromContent(content);
 
@@ -107,9 +98,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_MissingNoteColumn_YieldsNullNote()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,true\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,true\n";
 
         var records = ReadFromContent(content);
 
@@ -119,9 +108,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_EmptyNote_IsNormalizedToNull()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,true,\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,true,\n";
 
         var records = ReadFromContent(content);
 
@@ -133,9 +120,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     {
         // Split(',', 3) keeps extra commas inside the Note — the reader is
         // intentionally not a full CSV grammar.
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,true,interior wall, north wing\n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,true,interior wall, north wing\n";
 
         var records = ReadFromContent(content);
 
@@ -145,9 +130,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_NoteWithSurroundingWhitespace_IsTrimmed()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "a,true,  facade panel  \n";
+        var content = "GlobalId,IsExterior,Note\n" + "a,true,  facade panel  \n";
 
         var records = ReadFromContent(content);
 
@@ -159,12 +142,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_BlankLines_AreSkipped()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "\n" +
-            "a,true,\n" +
-            "   \n" +
-            "b,false,\n";
+        var content = "GlobalId,IsExterior,Note\n" + "\n" + "a,true,\n" + "   \n" + "b,false,\n";
 
         var records = ReadFromContent(content);
 
@@ -176,9 +154,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     [Fact]
     public void Read_LineWithSingleColumn_Throws()
     {
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            "onlyId\n";
+        var content = "GlobalId,IsExterior,Note\n" + "onlyId\n";
 
         var act = () => ReadFromContent(content);
 
@@ -190,9 +166,7 @@ public class GroundTruthCsvReaderTests : IDisposable
     {
         // GlobalId goes through as-is. Guards against normalisation that would make
         // IFC GlobalIds stop matching.
-        var content =
-            "GlobalId,IsExterior,Note\n" +
-            " 1abc$XYZ ,true,\n";
+        var content = "GlobalId,IsExterior,Note\n" + " 1abc$XYZ ,true,\n";
 
         var records = ReadFromContent(content);
 

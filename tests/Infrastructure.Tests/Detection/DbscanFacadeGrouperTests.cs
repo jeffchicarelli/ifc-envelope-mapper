@@ -18,7 +18,7 @@ public sealed class DbscanFacadeGrouperTests
     public void Group_EmptyEnvelope_ReturnsEmpty()
     {
         var envelope = new Envelope(new DMesh3(), []);
-        var facades  = new DbscanFacadeGrouper().Group(envelope);
+        var facades = new DbscanFacadeGrouper().Group(envelope);
         facades.Should().BeEmpty();
     }
 }
@@ -52,23 +52,21 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
         // each test method's execution context. Calling Configure here ensures the
         // current test instance's context has a valid Scene — same pattern the
         // RayCastingEvaluationTests / Demo2EvaluationTests use for EmitDisagreementGlb.
-        GeometryDebug.Configure(
-            Path.Combine(Path.GetTempPath(), "DbscanFacadeGrouperTests.glb"),
-            launchServer: false);
+        GeometryDebug.Configure(Path.Combine(Path.GetTempPath(), "DbscanFacadeGrouperTests.glb"), false);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private IReadOnlyList<Facade> RunGrouper(
-        double epsilonDeg = 15.0, int minFaces = 3, double adjacencyM = 3.0)
+    private IReadOnlyList<Facade> RunGrouper(double epsilonDeg = 15.0, int minFaces = 3, double adjacencyM = 3.0)
     {
         var result = new VoxelFloodFillDetector().Detect(Model.Elements);
-        return new DbscanFacadeGrouper(epsilonDeg, minFaces, adjacencyM)
-                   .Group(result.Envelope);
+        return new DbscanFacadeGrouper(epsilonDeg, minFaces, adjacencyM).Group(result.Envelope);
     }
 
     private Envelope RunEnvelope()
-        => new VoxelFloodFillDetector().Detect(Model.Elements).Envelope;
+    {
+        return new VoxelFloodFillDetector().Detect(Model.Elements).Envelope;
+    }
 
     // ── correctness ───────────────────────────────────────────────────────────
 
@@ -83,8 +81,8 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
     public void Group_OnDuplex_FacesArePartitioned()
     {
         // every Face from the envelope belongs to exactly one Facade (no overlap)
-        var facades    = RunGrouper();
-        var allFaces   = facades.SelectMany(f => f.Faces).ToList();
+        var facades = RunGrouper();
+        var allFaces = facades.SelectMany(f => f.Faces).ToList();
         allFaces.Should().OnlyHaveUniqueItems();
     }
 
@@ -101,6 +99,7 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
     public void Group_OnDuplex_AzimuthsInRange()
     {
         var facades = RunGrouper();
+
         facades.Should().AllSatisfy(f =>
         {
             f.AzimuthDegrees.Should().BeGreaterThanOrEqualTo(0.0);
@@ -112,7 +111,7 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
     public void Group_OnDuplex_FacadesOrderedByAzimuth()
     {
         // Group() sorts ascending so the caller gets a stable N→E→S→W sequence
-        var facades  = RunGrouper();
+        var facades = RunGrouper();
         var azimuths = facades.Select(f => f.AzimuthDegrees).ToList();
         azimuths.Should().BeInAscendingOrder();
     }
@@ -123,8 +122,8 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
     public void Group_OnDuplex_DominantNormalsAreUnit()
     {
         var facades = RunGrouper();
-        facades.Should().AllSatisfy(f =>
-            f.DominantNormal.Length.Should().BeApproximately(1.0, precision: 1e-6));
+
+        facades.Should().AllSatisfy(f => f.DominantNormal.Length.Should().BeApproximately(1.0, 1e-6));
     }
 
     // ── structural invariants ─────────────────────────────────────────────────
@@ -134,7 +133,7 @@ public sealed class DbscanFacadeGrouperIntegrationTests : IfcTestBase
     {
         // Facade.Envelope must point to the same Envelope used in the Group() call
         var envelope = RunEnvelope();
-        var facades  = new DbscanFacadeGrouper().Group(envelope);
+        var facades = new DbscanFacadeGrouper().Group(envelope);
         facades.Should().AllSatisfy(f => f.Envelope.Should().BeSameAs(envelope));
     }
 }

@@ -7,33 +7,30 @@ using IfcEnvelopeMapper.Domain.Surface;
 namespace IfcEnvelopeMapper.Infrastructure.Detection;
 
 /// <summary>
-/// Extracts planar <see cref="Face"/>s from an <see cref="IElement"/> mesh
-/// by grouping near-coplanar triangles, then fitting a best-fit plane per group
-/// with PCA (Principal Component Analysis, <c>g4.OrthogonalPlaneFit3</c>).
-///
+/// Extracts planar <see cref="Face"/>s from an <see cref="IElement"/> mesh by grouping near-coplanar triangles,
+/// then fitting a best-fit plane per group with PCA (Principal Component Analysis, <c>g4.OrthogonalPlaneFit3</c>).
+/// <code>
 ///      raw mesh                    grouped by n̂                  Face per group
 ///    ┌───────────┐                ┌─────────────┐                ┌───────────────┐
 ///    │ △ △ △ △ △ │                │ ▲ ▲ ▲ │ ◆ ◆ │                │ plane + tri-  │
 ///    │ △ △ △ △ △ │ ── step 1+2 ──▶│ ▲ ▲ ▲ │ ◆ ◆ │ ── step 3+4 ──▶│ ids + area +  │
 ///    │ △ △ △ △ △ │  group by      │ ▲ ▲ ▲ │ ◆ ◆ │ split by       │ centroid      │
 ///    └───────────┘  normal        └─────────────┘ distance, fit   └───────────────┘
-///
-/// Fitting the plane from all vertex points (rather than reusing one triangle's
-/// normal) is more robust on slightly curved or noisy surfaces.
+/// </code>
+/// Fitting the plane from all vertex points (rather than reusing one triangle's normal) is more robust on slightly
+/// curved or noisy surfaces.
 /// </summary>
 public sealed class PcaFaceExtractor : IFaceExtractor
 {
-    private const double MinSubgroupArea = 1e-10;
+    private const double MIN_SUBGROUP_AREA = 1e-10;
 
     private readonly double _normalAngleTolerance;   // radians
     private readonly double _planeDistanceTolerance; // metres
 
     /// <summary>Creates an extractor with the given normal-angle and plane-distance grouping tolerances.</summary>
-    public PcaFaceExtractor(
-        double normalAngleToleranceDeg = 5.0,
-        double planeDistanceTolerance  = 0.05)
+    public PcaFaceExtractor(double normalAngleToleranceDeg = 5.0, double planeDistanceTolerance = 0.05)
     {
-        _normalAngleTolerance   = normalAngleToleranceDeg * Math.PI / 180.0;
+        _normalAngleTolerance = (normalAngleToleranceDeg * Math.PI) / 180.0;
         _planeDistanceTolerance = planeDistanceTolerance;
     }
 
@@ -41,6 +38,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
     public IReadOnlyList<Face> Extract(IElement element)
     {
         var mesh = element.GetMesh();
+
         if (mesh.TriangleCount == 0)
         {
             return Array.Empty<Face>();
@@ -57,6 +55,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
             }
 
             var placed = false;
+
             foreach (var group in groups)
             {
                 if (!mesh.TryGetTriangleCentroidAndNormal(group[0], out _, out var repNormal))
@@ -64,7 +63,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
                     continue;
                 }
 
-                var dot   = Math.Clamp(normal.Dot(repNormal), -1.0, 1.0);
+                var dot = Math.Clamp(normal.Dot(repNormal), -1.0, 1.0);
                 var angle = Math.Acos(dot);
 
                 // accept same-direction OR antiparallel normals (opposite faces of same wall)
@@ -84,6 +83,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
 
         // Step 3+4: split each group by plane distance, then fit plane → Face
         var faces = new List<Face>();
+
         foreach (var group in groups)
         {
             faces.AddRange(SplitByDistanceAndFit(element, group));
@@ -110,7 +110,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
                 continue;
             }
 
-            var dist   = centroid.Dot(repNormal);
+            var dist = centroid.Dot(repNormal);
             var placed = false;
 
             foreach (var sub in subgroups)
@@ -138,13 +138,13 @@ public sealed class PcaFaceExtractor : IFaceExtractor
         // Step 4: fit plane via PCA and create a Face per subgroup
         foreach (var sub in subgroups)
         {
-            var points           = new List<Vector3d>();
-            var area             = 0.0;
+            var points = new List<Vector3d>();
+            var area = 0.0;
             var weightedCentroid = Vector3d.Zero;
 
             foreach (var tid in sub)
             {
-                var t  = mesh.GetTriangle(tid);
+                var t = mesh.GetTriangle(tid);
                 var va = mesh.GetVertex(t.a);
                 var vb = mesh.GetVertex(t.b);
                 var vc = mesh.GetVertex(t.c);
@@ -153,14 +153,14 @@ public sealed class PcaFaceExtractor : IFaceExtractor
                 points.Add(vc);
 
                 // area = 0.5 * |(vb - va) × (vc - va)|
-                var triArea      = 0.5 * (vb - va).Cross(vc - va).Length;
-                var triCentroid  = (va + vb + vc) / 3.0;
-                area            += triArea;
+                var triArea = 0.5 * (vb - va).Cross(vc - va).Length;
+                var triCentroid = (va + vb + vc) / 3.0;
+                area += triArea;
                 weightedCentroid += triCentroid * triArea;
             }
 
-            var centroid = area > MinSubgroupArea ? weightedCentroid / area : points[0];
-            var plane    = points.FitPlane();
+            var centroid = area > MIN_SUBGROUP_AREA ? weightedCentroid / area : points[0];
+            var plane = points.FitPlane();
 
             yield return new Face(element, sub, plane, area, centroid);
         }

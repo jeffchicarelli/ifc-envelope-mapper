@@ -13,7 +13,9 @@ public class DMesh3ExtensionsTests
         var a = mesh.AppendVertex(p0);
         var b = mesh.AppendVertex(p1);
         var c = mesh.AppendVertex(p2);
+
         mesh.AppendTriangle(new Index3i(a, b, c));
+
         return mesh;
     }
 
@@ -31,10 +33,7 @@ public class DMesh3ExtensionsTests
     [Fact]
     public void Merge_SingleMesh_CountsMatchInput()
     {
-        var m = MakeTriangle(
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 1, 0));
+        var m = MakeTriangle(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
 
         var merged = new[] { m }.Merge();
 
@@ -45,14 +44,8 @@ public class DMesh3ExtensionsTests
     [Fact]
     public void Merge_TwoMeshes_CountsAreSums()
     {
-        var m1 = MakeTriangle(
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 1, 0));
-        var m2 = MakeTriangle(
-            new Vector3d(10, 0, 0),
-            new Vector3d(11, 0, 0),
-            new Vector3d(10, 1, 0));
+        var m1 = MakeTriangle(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+        var m2 = MakeTriangle(new Vector3d(10, 0, 0), new Vector3d(11, 0, 0), new Vector3d(10, 1, 0));
 
         var merged = new[] { m1, m2 }.Merge();
 
@@ -66,21 +59,15 @@ public class DMesh3ExtensionsTests
         // Second mesh's triangle indices originally reference its own vertices 0..2.
         // After merge they must be offset by 3 so the triangle still points to
         // the correct positions in the merged vertex list.
-        var m1 = MakeTriangle(
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 1, 0));
-        var m2 = MakeTriangle(
-            new Vector3d(10, 0, 0),
-            new Vector3d(11, 0, 0),
-            new Vector3d(10, 1, 0));
+        var m1 = MakeTriangle(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+        var m2 = MakeTriangle(new Vector3d(10, 0, 0), new Vector3d(11, 0, 0), new Vector3d(10, 1, 0));
 
         var merged = new[] { m1, m2 }.Merge();
 
         var tri = merged.GetTriangle(1);
-        var pa  = merged.GetVertex(tri.a);
-        var pb  = merged.GetVertex(tri.b);
-        var pc  = merged.GetVertex(tri.c);
+        var pa = merged.GetVertex(tri.a);
+        var pb = merged.GetVertex(tri.b);
+        var pc = merged.GetVertex(tri.c);
 
         pa.Should().Be(new Vector3d(10, 0, 0));
         pb.Should().Be(new Vector3d(11, 0, 0));
@@ -119,7 +106,7 @@ public class DMesh3ExtensionsTests
 
         var extracted = source.ExtractTriangles(new[] { 0, 1 });
 
-        extracted.VertexCount.Should().Be(6);  // 3 × 2 triangles, no sharing
+        extracted.VertexCount.Should().Be(6); // 3 × 2 triangles, no sharing
     }
 
     [Fact]
@@ -147,8 +134,10 @@ public class DMesh3ExtensionsTests
         var v1 = mesh.AppendVertex(new Vector3d(1, 0, 0));
         var v2 = mesh.AppendVertex(new Vector3d(1, 1, 0));
         var v3 = mesh.AppendVertex(new Vector3d(0, 1, 0));
+
         mesh.AppendTriangle(new Index3i(v0, v1, v2));
         mesh.AppendTriangle(new Index3i(v0, v2, v3));
+
         return mesh;
     }
 }

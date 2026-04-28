@@ -15,13 +15,16 @@ using System.Text.Json.Serialization;
 // (extra sidecars, log level) without reshuffling args at every call site.
 
 var configLine = Console.In.ReadLine();
+
 if (string.IsNullOrWhiteSpace(configLine))
 {
     Console.Error.WriteLine("DebugServer: expected JSON config on stdin, got empty input");
+
     return 2;
 }
 
 HelperConfig? config;
+
 try
 {
     config = JsonSerializer.Deserialize<HelperConfig>(configLine);
@@ -29,12 +32,14 @@ try
 catch (JsonException ex)
 {
     Console.Error.WriteLine($"DebugServer: invalid JSON config: {ex.Message}");
+
     return 2;
 }
 
 if (config is null || string.IsNullOrEmpty(config.ViewerHtmlPath) || string.IsNullOrEmpty(config.GlbPath))
 {
     Console.Error.WriteLine("DebugServer: config missing required fields (viewerHtmlPath, glbPath)");
+
     return 2;
 }
 
@@ -66,6 +71,7 @@ _ = Task.Run(async () =>
         try
         {
             var parent = Process.GetProcessById(config.ParentPid);
+
             if (parent.HasExited)
             {
                 Environment.Exit(0);
@@ -87,12 +93,19 @@ Console.WriteLine($"Debug viewer: http://localhost:{boundPort}/");
 while (true)
 {
     HttpListenerContext ctx;
+
     try
     {
         ctx = await listener.GetContextAsync();
     }
-    catch (HttpListenerException) { break; }
-    catch (ObjectDisposedException) { break; }
+    catch (HttpListenerException)
+    {
+        break;
+    }
+    catch (ObjectDisposedException)
+    {
+        break;
+    }
 
     // Fire-and-forget: one Task per request. HttpListener can have many
     // concurrent in-flight requests (the viewer polls every 200 ms, but also
@@ -102,7 +115,6 @@ while (true)
 
 return 0;
 
-
 static (HttpListener listener, int port) TryBind(int preferredPort)
 {
     foreach (var port in new[] { preferredPort, 0 })
@@ -110,9 +122,10 @@ static (HttpListener listener, int port) TryBind(int preferredPort)
         try
         {
             var actualPort = port == 0 ? GetFreePort() : port;
-            var listener   = new HttpListener();
+            var listener = new HttpListener();
             listener.Prefixes.Add($"http://localhost:{actualPort}/");
             listener.Start();
+
             return (listener, actualPort);
         }
         catch (HttpListenerException) when (port != 0)
@@ -127,13 +140,16 @@ static (HttpListener listener, int port) TryBind(int preferredPort)
 static int GetFreePort()
 {
     var s = new TcpListener(IPAddress.Loopback, 0);
+
     s.Start();
     var port = ((IPEndPoint)s.LocalEndpoint).Port;
     s.Stop();
+
     return port;
 }
 
-static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, string viewerAssetRoot, string glbPath, string occupantsPath, string sessionId)
+static async Task HandleAsync(
+    HttpListenerContext ctx, string viewerHtmlPath, string viewerAssetRoot, string glbPath, string occupantsPath, string sessionId)
 {
     try
     {
@@ -146,16 +162,21 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
         if (path is "/" or "/index.html")
         {
             await ServeFileAsync(ctx, viewerHtmlPath, "text/html; charset=utf-8");
+
             return;
         }
+
         if (path == "/ifc-debug-output.glb")
         {
             await ServeFileAsync(ctx, glbPath, "model/gltf-binary");
+
             return;
         }
+
         if (path == "/ifc-debug-occupants.json")
         {
             await ServeFileAsync(ctx, occupantsPath, "application/json; charset=utf-8");
+
             return;
         }
 
@@ -164,11 +185,13 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
         // any .. segments; we then require the result to stay under the asset
         // root, so ../../../Windows/System32/... attempts 404 instead of escaping.
         var relative = Uri.UnescapeDataString(path.TrimStart('/'));
+
         var candidate = Path.GetFullPath(Path.Combine(viewerAssetRoot, relative));
-        if (candidate.StartsWith(viewerAssetRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-            && File.Exists(candidate))
+
+        if (candidate.StartsWith(viewerAssetRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
         {
             await ServeFileAsync(ctx, candidate, GuessContentType(candidate));
+
             return;
         }
 
@@ -176,7 +199,14 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
     }
     catch
     {
-        try { ctx.Response.StatusCode = 500; } catch { /* ignore */ }
+        try
+        {
+            ctx.Response.StatusCode = 500;
+        }
+        catch
+        {
+            /* ignore */
+        }
     }
     finally
     {
@@ -188,23 +218,27 @@ static async Task HandleAsync(HttpListenerContext ctx, string viewerHtmlPath, st
 // unknown falls back to octet-stream, which the browser handles sensibly (and
 // never gets served because the resolver only admits known extensions indirectly
 // via File.Exists on the viewer asset tree).
-static string GuessContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+static string GuessContentType(string path)
 {
-    ".js"   => "text/javascript; charset=utf-8",
-    ".mjs"  => "text/javascript; charset=utf-8",
-    ".css"  => "text/css; charset=utf-8",
-    ".html" => "text/html; charset=utf-8",
-    ".json" => "application/json; charset=utf-8",
-    ".svg"  => "image/svg+xml",
-    ".png"  => "image/png",
-    _       => "application/octet-stream",
-};
+    return Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".js"   => "text/javascript; charset=utf-8",
+        ".mjs"  => "text/javascript; charset=utf-8",
+        ".css"  => "text/css; charset=utf-8",
+        ".html" => "text/html; charset=utf-8",
+        ".json" => "application/json; charset=utf-8",
+        ".svg"  => "image/svg+xml",
+        ".png"  => "image/png",
+        _       => "application/octet-stream"
+    };
+}
 
 static async Task ServeFileAsync(HttpListenerContext ctx, string path, string contentType)
 {
     if (!File.Exists(path))
     {
         ctx.Response.StatusCode = 404;
+
         return;
     }
 
@@ -217,9 +251,8 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
     // up the new file.
     byte[] bytes;
     DateTime lastWriteUtc;
-    await using (var fs = new FileStream(
-        path, FileMode.Open, FileAccess.Read,
-        FileShare.ReadWrite | FileShare.Delete))
+
+    await using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
     {
         // Read timestamp from the HANDLE, not the path. File.Move(overwrite:true)
         // swaps the inode at `path` atomically; a path-based timestamp lookup can
@@ -233,7 +266,7 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
         bytes = ms.ToArray();
     }
 
-    ctx.Response.ContentType     = contentType;
+    ctx.Response.ContentType = contentType;
     ctx.Response.ContentLength64 = bytes.Length;
 
     // Ticks (100 ns) instead of RFC 1123 ("R", 1 s) so two flushes in the same
@@ -249,8 +282,10 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
 // serialize the same shape without duplicating field names — System.Text.Json
 // property-name matching is case-insensitive by default, but camelCase output
 // keeps the on-wire JSON small and human-readable.
-internal sealed record HelperConfig(
-    [property: JsonPropertyName("port")]           int    Port,
-    [property: JsonPropertyName("parentPid")]      int    ParentPid,
-    [property: JsonPropertyName("viewerHtmlPath")] string ViewerHtmlPath,
-    [property: JsonPropertyName("glbPath")]        string GlbPath);
+internal sealed record HelperConfig
+(
+    [property: JsonPropertyName("port")]int Port,
+    [property: JsonPropertyName("parentPid")]int ParentPid,
+    [property: JsonPropertyName("viewerHtmlPath")]string ViewerHtmlPath,
+    [property: JsonPropertyName("glbPath")]string GlbPath
+);

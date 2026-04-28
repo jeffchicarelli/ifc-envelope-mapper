@@ -2,16 +2,15 @@ using IfcEnvelopeMapper.Infrastructure.Visualization.Api;
 
 namespace IfcEnvelopeMapper.Infrastructure.Visualization;
 
-// Semantic color palette for debug visualization, keyed by IFC entity type.
-// Loosely follows the Solibri / BIMcollab convention: warm tones for envelope
-// elements (walls, roof, doors), gray for structure (slabs, columns, beams),
-// cyan-translucent for glazing, yellow-translucent for spaces.
-//
-// Alpha channel is included so the viewer can render glazing and spaces
-// see-through without the caller having to append alpha per call site.
+/// <summary>
+/// Semantic color palette for debug visualization, keyed by IFC entity type. Loosely follows the Solibri /
+/// BIMcollab convention: warm tones for envelope elements (walls, roof, doors), gray for structure (slabs,
+/// columns, beams), cyan-translucent for glazing, yellow-translucent for spaces. The alpha channel lets the
+/// viewer render glazing and spaces see-through without per-call-site alpha appending.
+/// </summary>
 public static class IfcTypePalette
 {
-    private static readonly Dictionary<string, Color> Colors = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, Color> _colors = new(StringComparer.OrdinalIgnoreCase)
     {
         { "IfcWall",             Color.FromHex("#d4c4a8c0") },
         { "IfcWallStandardCase", Color.FromHex("#d4c4a8c0") },
@@ -31,8 +30,10 @@ public static class IfcTypePalette
         { "IfcCovering",         Color.FromHex("#c0b090c0") },
     };
 
-    private static readonly Color Default = Color.FromHex("#cccccccc");
+    private static readonly Color _default = Color.FromHex("#cccccccc");
 
-    public static Color For(string ifcType) =>
-        Colors.TryGetValue(ifcType, out var c) ? c : Default;
+    public static Color For(string ifcType)
+    {
+        return _colors.TryGetValue(ifcType, out var c) ? c : _default;
+    }
 }

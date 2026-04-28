@@ -2,7 +2,7 @@ namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 
 /// <summary>
 /// Confusion-matrix counts for a single detection run against a ground-truth set.
-///
+/// <code>
 ///                    ┌────────────────┬────────────────┐
 ///                    │ predicted: yes │ predicted: no  │
 ///     ┌──────────────┼────────────────┼────────────────┤
@@ -10,7 +10,7 @@ namespace IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 ///     ├──────────────┼────────────────┼────────────────┤
 ///     │ actual: no   │       FP       │       TN       │
 ///     └──────────────┴────────────────┴────────────────┘
-///
+/// </code>
 /// Precision answers "of what we flagged as facade, how much actually is?";
 /// Recall answers "of the real facade, how much did we catch?".
 /// Both return <see cref="double.NaN"/> when their denominator is zero.

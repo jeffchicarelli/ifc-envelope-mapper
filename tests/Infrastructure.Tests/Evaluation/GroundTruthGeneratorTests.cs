@@ -12,6 +12,21 @@ public sealed class GroundTruthGeneratorTests : IfcTestBase, IDisposable
         _tempCsv = Path.Combine(Path.GetTempPath(), $"gt-gen-{Guid.NewGuid():N}.csv");
     }
 
+    public void Dispose()
+    {
+        try
+        {
+            if (File.Exists(_tempCsv))
+            {
+                File.Delete(_tempCsv);
+            }
+        }
+        catch
+        {
+            /* best-effort cleanup */
+        }
+    }
+
     [Fact]
     public void GenerateFromIfc_ReturnsRecordCountMatchingFileLines()
     {
@@ -36,6 +51,7 @@ public sealed class GroundTruthGeneratorTests : IfcTestBase, IDisposable
         records.Count.Should().BeLessThanOrEqualTo(Model.Elements.Count);
 
         var loadedIds = Model.Elements.Select(e => e.GlobalId).ToHashSet(StringComparer.Ordinal);
+
         foreach (var record in records)
         {
             loadedIds.Should().Contain(record.GlobalId);
@@ -72,7 +88,7 @@ public sealed class GroundTruthGeneratorTests : IfcTestBase, IDisposable
         // "<IfcType> (auto)" so the user can tell which entries need manual labelling.
         GroundTruthGenerator.GenerateFromIfc(IfcPath, _tempCsv, Model.Elements);
 
-        var records  = new GroundTruthCsvReader().Read(_tempCsv);
+        var records = new GroundTruthCsvReader().Read(_tempCsv);
         var unknowns = records.Where(r => r.IsExterior is null).ToList();
 
         if (unknowns.Count > 0)
@@ -85,7 +101,9 @@ public sealed class GroundTruthGeneratorTests : IfcTestBase, IDisposable
     public void GenerateFromIfc_CreatesParentDirectoryIfMissing()
     {
         var nestedDir = Path.Combine(Path.GetTempPath(), $"gt-nested-{Guid.NewGuid():N}", "deep", "level");
-        var path      = Path.Combine(nestedDir, "out.csv");
+
+        var path = Path.Combine(nestedDir, "out.csv");
+
         Directory.Exists(nestedDir).Should().BeFalse();
 
         try
@@ -96,20 +114,14 @@ public sealed class GroundTruthGeneratorTests : IfcTestBase, IDisposable
         }
         finally
         {
-            try { Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(nestedDir)!)!, recursive: true); }
-            catch { /* best-effort */ }
-        }
-    }
-
-    public void Dispose()
-    {
-        try
-        {
-            if (File.Exists(_tempCsv))
+            try
             {
-                File.Delete(_tempCsv);
+                Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(nestedDir)!)!, true);
+            }
+            catch
+            {
+                /* best-effort */
             }
         }
-        catch { /* best-effort cleanup */ }
     }
 }

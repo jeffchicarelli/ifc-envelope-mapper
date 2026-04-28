@@ -20,29 +20,26 @@ namespace IfcEnvelopeMapper.Engine.Pipeline.Detection;
 /// <summary>
 /// Detects exterior elements by rasterizing the model into a <see cref="VoxelGrid3D"/>
 /// and flood-filling from outside in (van der Vaart 2022).
-///
-///   1) Rasterize: each mesh triangle marks the voxels it intersects as Occupied
-///      via the SAT test (Akenine-Möller 1997). Occupants are tracked per voxel
-///      so we can map voxels back to element GlobalIds.
-///   2) FillGaps: morphological closing — any Unknown voxel sandwiched between
-///      Occupied on opposing face-adjacent axes is promoted to Occupied. Seals
-///      1-voxel cracks between wall/slab meshes before the flood-fill runs.
-///   3) GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which
-///      the padded grid guarantees to be outside the model. GrowInterior and
-///      GrowVoid then label the remaining cells.
-///   4) Classify: any element occupying a voxel that touches an Exterior voxel
-///      is itself exterior.
-///
-///        ┌─────────────────────┐                ┌─────────────────────┐
-///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │     · Unknown
-///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │     █ Occupied
-///        │ · █         █ · · · │   flood fill   │ ◦ █ · · · · █ ◦ ◦ ◦ │     ◦ Exterior
-///        │ · █         █ · · · │  ─────────────▶│ ◦ █ · · · · █ ◦ ◦ ◦ │
-///        │ · █         █ · · · │                │ ◦ █ · · · · █ ◦ ◦ ◦ │
-///        │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │
-///        │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │
-///        └─────────────────────┘                └─────────────────────┘
-///
+/// <list type="number">
+///     <item><description>Rasterize: each mesh triangle marks the voxels it intersects as Occupied via the SAT test
+///     (Akenine-Möller 1997). Occupants are tracked per voxel so we can map voxels back to element GlobalIds.</description></item>
+///     <item><description>FillGaps: morphological closing — any Unknown voxel sandwiched between Occupied on opposing
+///     face-adjacent axes is promoted to Occupied. Seals 1-voxel cracks between wall/slab meshes before the flood-fill runs.</description></item>
+///     <item><description>GrowExterior: 26-connected flood fill from corner voxel (0,0,0), which the padded grid
+///     guarantees to be outside the model. GrowInterior and GrowVoid then label the remaining cells.</description></item>
+///     <item><description>Classify: any element occupying a voxel that touches an Exterior voxel is itself exterior.</description></item>
+/// </list>
+/// <code>
+///     ┌─────────────────────┐                ┌─────────────────────┐
+///     │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │     · Unknown
+///     │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │     █ Occupied
+///     │ · █         █ · · · │   flood fill   │ ◦ █ · · · · █ ◦ ◦ ◦ │     ◦ Exterior
+///     │ · █         █ · · · │  ─────────────▶│ ◦ █ · · · · █ ◦ ◦ ◦ │
+///     │ · █         █ · · · │                │ ◦ █ · · · · █ ◦ ◦ ◦ │
+///     │ · ███████████ · · · │                │ ◦ ███████████ ◦ ◦ ◦ │
+///     │ · · · · · · · · · · │                │ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ ◦ │
+///     └─────────────────────┘                └─────────────────────┘
+/// </code>
 /// </summary>
 /// <remarks>
 /// <c>voxelSize</c> trades accuracy for cost: halving it multiplies rasterization

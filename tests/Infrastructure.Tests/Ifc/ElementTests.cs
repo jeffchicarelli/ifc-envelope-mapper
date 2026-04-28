@@ -13,7 +13,7 @@ public sealed class ElementTests : IfcTestBase
     [Fact]
     public void Equals_TwoReferencesToSameLoadedElement_AreEqual()
     {
-        var first  = Elem(0);
+        var first = Elem(0);
         var second = Model.Elements.OfType<Element>().First(e => e.GlobalId == first.GlobalId);
 
         first.Equals(second).Should().BeTrue();
@@ -33,9 +33,9 @@ public sealed class ElementTests : IfcTestBase
     [Fact]
     public void Equals_AgainstNullOrOtherType_ReturnsFalse()
     {
-        var      a           = Elem(0);
+        var a = Elem(0);
         Element? nullElement = null;
-        object?  nullObject  = null;
+        object? nullObject = null;
 
         a.Equals(nullElement).Should().BeFalse();
         a.Equals(nullObject).Should().BeFalse();
@@ -47,8 +47,8 @@ public sealed class ElementTests : IfcTestBase
     {
         // Equality contract: HashSet<Element> works without a custom comparer.
         var firstFive = Model.Elements.Take(5).Cast<Element>().ToList();
-        var dupes     = firstFive.Concat(firstFive);
-        var set       = new HashSet<Element>(dupes);
+        var dupes = firstFive.Concat(firstFive);
+        var set = new HashSet<Element>(dupes);
 
         set.Count.Should().Be(5);
     }
@@ -62,7 +62,7 @@ public sealed class ElementTests : IfcTestBase
         // the exact same reference, not a new clone.
         var element = Elem(0);
 
-        var first  = element.GetMesh();
+        var first = element.GetMesh();
         var second = element.GetMesh();
 
         ReferenceEquals(first, second).Should().BeTrue();
@@ -73,7 +73,7 @@ public sealed class ElementTests : IfcTestBase
     {
         var element = Elem(0);
 
-        var first  = element.GetBoundingBox();
+        var first = element.GetBoundingBox();
         var second = element.GetBoundingBox();
 
         first.Min.Distance(second.Min).Should().BeLessThan(1e-12);
@@ -84,7 +84,7 @@ public sealed class ElementTests : IfcTestBase
     public void GetBoundingBox_IsNonDegenerateForElementsWithGeometry()
     {
         var element = Model.Elements.Cast<Element>().First(e => e.GetMesh().VertexCount > 8);
-        var bbox    = element.GetBoundingBox();
+        var bbox = element.GetBoundingBox();
 
         bbox.Max.x.Should().BeGreaterThan(bbox.Min.x);
         bbox.Max.y.Should().BeGreaterThan(bbox.Min.y);
@@ -121,13 +121,16 @@ public sealed class ElementTests : IfcTestBase
     {
         // duplex has plenty of atomic elements (walls, slabs).
         var atomic = Model.Elements
-            .Cast<Element>()
-            .First(e => e.GetIfcProduct() is not IIfcCurtainWall
-                     && e.GetIfcProduct() is not IIfcRoof
-                     && e.Children.Count == 0);
+                          .Cast<Element>()
+                          .First(e => e.GetIfcProduct() is not IIfcCurtainWall &&
+                                      e.GetIfcProduct() is not IIfcRoof &&
+                                      e.Children.Count == 0);
 
         atomic.Children.Should().BeEmpty();
     }
 
-    private Element Elem(int index) => (Element)Model.Elements[index];
+    private Element Elem(int index)
+    {
+        return (Element)Model.Elements[index];
+    }
 }

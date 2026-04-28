@@ -6,10 +6,28 @@ public sealed class AtomicFileTests : IDisposable
 {
     private readonly List<string> _tempPaths = new();
 
+    public void Dispose()
+    {
+        foreach (var path in _tempPaths)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                /* best-effort cleanup */
+            }
+        }
+    }
+
     [Fact]
     public void MoveWithRetry_HappyPath_RenamesAndCopiesContent()
     {
-        var src  = NewTempFile(content: "payload-A");
+        var src = NewTempFile("payload-A");
         var dest = NewTempPath();
 
         AtomicFile.MoveWithRetry(src, dest);
@@ -22,8 +40,8 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public void MoveWithRetry_DestExists_OverwritesContent()
     {
-        var src  = NewTempFile(content: "new-content");
-        var dest = NewTempFile(content: "old-content");
+        var src = NewTempFile("new-content");
+        var dest = NewTempFile("old-content");
 
         AtomicFile.MoveWithRetry(src, dest);
 
@@ -36,7 +54,8 @@ public sealed class AtomicFileTests : IDisposable
     {
         // Documented behaviour: a vanished source means another writer already
         // landed something — return silently rather than crash.
-        var src  = Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.tmp");
+        var src = Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.tmp");
+
         var dest = NewTempPath();
         File.Exists(src).Should().BeFalse();
 
@@ -51,8 +70,10 @@ public sealed class AtomicFileTests : IDisposable
     {
         // Real callers (GltfSerializer) write GLB binary, not text.
         var bytes = new byte[] { 0x00, 0xFF, 0x10, 0xAB, 0xCD, 0xEF, 0x42 };
-        var src   = NewTempPath();
+        var src = NewTempPath();
+
         File.WriteAllBytes(src, bytes);
+
         var dest = NewTempPath();
 
         AtomicFile.MoveWithRetry(src, dest);
@@ -63,29 +84,18 @@ public sealed class AtomicFileTests : IDisposable
     private string NewTempFile(string content)
     {
         var path = NewTempPath();
+
         File.WriteAllText(path, content);
+
         return path;
     }
 
     private string NewTempPath()
     {
         var path = Path.Combine(Path.GetTempPath(), $"atomic-test-{Guid.NewGuid():N}.tmp");
-        _tempPaths.Add(path);
-        return path;
-    }
 
-    public void Dispose()
-    {
-        foreach (var path in _tempPaths)
-        {
-            try
-            {
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-            catch { /* best-effort cleanup */ }
-        }
+        _tempPaths.Add(path);
+
+        return path;
     }
 }

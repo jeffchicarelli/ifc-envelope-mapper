@@ -6,10 +6,7 @@ namespace IfcEnvelopeMapper.Domain.Extensions;
 /// <summary>Extension methods on <see cref="IBoxEntity"/> collections.</summary>
 public static class BoxEntityExtensions
 {
-    /// <summary>
-    /// Combined axis-aligned bounding box of every entity's stored bbox — the
-    /// union of <see cref="IBoxEntity.GetBoundingBox"/> results.
-    /// </summary>
+    /// <summary>Combined axis-aligned bounding box of every entity's stored bbox — the union of <see cref="IBoxEntity.GetBoundingBox"/> results.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the sequence is empty.</exception>
     public static AxisAlignedBox3d BoundingBox(this IEnumerable<IBoxEntity> entities)
     {

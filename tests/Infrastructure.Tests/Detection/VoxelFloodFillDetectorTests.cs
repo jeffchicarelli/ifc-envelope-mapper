@@ -29,8 +29,10 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
         result.Classifications.Count.Should().Be(elements.Count);
 
         // Sort both sides — Detect() ordering is not part of the contract.
-        var inputIds  = elements.Select(e => e.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var inputIds = elements.Select(e => e.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
+
         var outputIds = result.Classifications.Select(c => c.Element.GlobalId).OrderBy(s => s, StringComparer.Ordinal).ToList();
+
         outputIds.Should().Equal(inputIds);
     }
 
@@ -39,12 +41,13 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
     {
         var elements = Model.Elements;
 
-        var first  = new VoxelFloodFillDetector().Detect(elements);
+        var first = new VoxelFloodFillDetector().Detect(elements);
         var second = new VoxelFloodFillDetector().Detect(elements);
 
         first.Classifications.Count.Should().Be(second.Classifications.Count);
 
-        var firstByGid  = first.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
+        var firstByGid = first.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
+
         var secondByGid = second.Classifications.ToDictionary(c => c.Element.GlobalId, c => c.IsExterior);
 
         firstByGid.Should().Equal(secondByGid);
@@ -60,13 +63,11 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
         {
             if (c.IsExterior)
             {
-                c.ExternalFaces.Should().NotBeEmpty(
-                    "exterior element {0} must have extracted faces", c.Element.GlobalId);
+                c.ExternalFaces.Should().NotBeEmpty("exterior element {0} must have extracted faces", c.Element.GlobalId);
             }
             else
             {
-                c.ExternalFaces.Should().BeEmpty(
-                    "interior element {0} must not carry faces", c.Element.GlobalId);
+                c.ExternalFaces.Should().BeEmpty("interior element {0} must not carry faces", c.Element.GlobalId);
             }
         }
     }
@@ -76,10 +77,7 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
     {
         var result = new VoxelFloodFillDetector().Detect(Model.Elements);
 
-        var expected = result.Classifications
-                             .Where(c => c.IsExterior)
-                             .SelectMany(c => c.ExternalFaces)
-                             .Count();
+        var expected = result.Classifications.Where(c => c.IsExterior).SelectMany(c => c.ExternalFaces).Count();
 
         result.Envelope.Faces.Count.Should().Be(expected);
     }
@@ -93,10 +91,7 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
 
         var result = new VoxelFloodFillDetector(faceExtractor: recorder).Detect(Model.Elements);
 
-        var exteriorIds = result.Classifications
-                                .Where(c => c.IsExterior)
-                                .Select(c => c.Element.GlobalId)
-                                .ToHashSet(StringComparer.Ordinal);
+        var exteriorIds = result.Classifications.Where(c => c.IsExterior).Select(c => c.Element.GlobalId).ToHashSet(StringComparer.Ordinal);
 
         recorder.CalledFor.Should().BeEquivalentTo(exteriorIds);
     }
@@ -114,16 +109,15 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
     public void Detect_DifferentVoxelSize_DoesNotThrow_AndStillProducesClassifications()
     {
         // Larger voxel (1.0 m) is the safe direction — smaller multiplies cost ~8×.
-        var result = new VoxelFloodFillDetector(voxelSize: 1.0).Detect(Model.Elements);
+        var result = new VoxelFloodFillDetector(1.0).Detect(Model.Elements);
 
         result.Classifications.Count.Should().Be(Model.Elements.Count);
         result.Classifications.Any(c => c.IsExterior).Should().BeTrue();
     }
 
     /// <summary>
-    /// Records which element GlobalIds the strategy invokes extraction for,
-    /// while delegating to the real <see cref="PcaFaceExtractor"/> so the rest of
-    /// the pipeline observes a populated envelope.
+    /// Records which element GlobalIds the strategy invokes extraction for, while delegating to the real <see cref="PcaFaceExtractor"/> so the rest
+    /// of the pipeline observes a populated envelope.
     /// </summary>
     private sealed class RecordingFaceExtractor : IFaceExtractor
     {
@@ -133,6 +127,7 @@ public sealed class VoxelFloodFillDetectorTests : IfcTestBase
         public IReadOnlyList<Face> Extract(IElement element)
         {
             CalledFor.Add(element.GlobalId);
+
             return _inner.Extract(element);
         }
     }

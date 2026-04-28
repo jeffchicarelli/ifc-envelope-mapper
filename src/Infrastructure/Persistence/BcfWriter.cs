@@ -9,23 +9,18 @@ using IfcEnvelopeMapper.Application.Reports;
 namespace IfcEnvelopeMapper.Infrastructure.Persistence;
 
 /// <summary>
-/// Serialises a <see cref="BcfPackage"/> to a BCF 2.1 ZIP archive.
-/// Layout: <c>bcf.version</c> at root, plus one folder per topic
-/// (named with the topic GUID) holding <c>markup.bcf</c> and
-/// <c>viewpoint.bcfv</c>.
+/// Serialises a <see cref="BcfPackage"/> to a BCF 2.1 ZIP archive. Layout: <c>bcf.version</c> at root, plus one folder per topic (named with
+/// the topic GUID) holding <c>markup.bcf</c> and <c>viewpoint.bcfv</c>.
 /// </summary>
 public sealed class BcfWriter : IBcfWriter
 {
-    private static readonly XmlWriterSettings XML_SETTINGS = new()
-    {
-        Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-        Indent   = true,
-    };
+    private static readonly XmlWriterSettings _xmlSettings = new() { Encoding = new UTF8Encoding(false), Indent = true };
 
     /// <inheritdoc/>
     public void Write(BcfPackage package, string outputPath)
     {
         var dir = Path.GetDirectoryName(outputPath);
+
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
@@ -34,26 +29,29 @@ public sealed class BcfWriter : IBcfWriter
         // reverse-disposal trick: zip is closed first, writing its central
         // directory into fs, then fs closes the OS handle. Flip the order
         // and the resulting archive is unreadable.
-        using var fs  = File.Create(outputPath);
+        using var fs = File.Create(outputPath);
+
         using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
 
         WriteVersionEntry(zip, package.Version);
+
         foreach (var topic in package.Topics)
         {
             WriteTopicMarkupEntry(zip, topic);
+
             WriteTopicViewpointEntry(zip, topic);
         }
     }
 
     private static void WriteVersionEntry(ZipArchive zip, string version)
-        => WriteXmlEntry(zip, "bcf.version",
-            new XDocument(
-                new XElement("Version",
-                    new XAttribute("VersionId", version),
-                    new XElement("DetailedVersion", version))));
+    {
+        WriteXmlEntry(zip, "bcf.version",
+                      new XDocument(new XElement("Version", new XAttribute("VersionId", version), new XElement("DetailedVersion", version))));
+    }
 
     private static void WriteTopicMarkupEntry(ZipArchive zip, BcfTopic t)
-        => WriteXmlEntry(zip, $"{t.TopicGuid}/markup.bcf",
+    {
+        WriteXmlEntry(zip, $"{t.TopicGuid}/markup.bcf",
             new XDocument(
                 new XElement("Markup",
                     new XElement("Topic",
@@ -67,10 +65,12 @@ public sealed class BcfWriter : IBcfWriter
                         new XElement("ViewPoint",
                             new XAttribute("Guid", t.Viewpoint.ViewpointGuid),
                             new XElement("Viewpoint", "viewpoint.bcfv"))))));
+    }
 
     private static void WriteTopicViewpointEntry(ZipArchive zip, BcfTopic t)
     {
         var v = t.Viewpoint;
+
         WriteXmlEntry(zip, $"{t.TopicGuid}/viewpoint.bcfv",
             new XDocument(
                 new XElement("VisualizationInfo",
@@ -87,16 +87,15 @@ public sealed class BcfWriter : IBcfWriter
     }
 
     private static XElement XmlVector(string name, Vector3d v)
-        => new(name,
-            new XElement("X", v.x),
-            new XElement("Y", v.y),
-            new XElement("Z", v.z));
+    {
+        return new XElement(name, new XElement("X", v.x), new XElement("Y", v.y), new XElement("Z", v.z));
+    }
 
     private static void WriteXmlEntry(ZipArchive zip, string entryName, XDocument doc)
     {
         var entry = zip.CreateEntry(entryName);
         using var stream = entry.Open();
-        using var writer = XmlWriter.Create(stream, XML_SETTINGS);
+        using var writer = XmlWriter.Create(stream, _xmlSettings);
         doc.Save(writer);
     }
 }
