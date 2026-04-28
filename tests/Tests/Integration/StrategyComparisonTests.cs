@@ -13,7 +13,7 @@ namespace IfcEnvelopeMapper.Tests.Integration;
 // RayCastingEvaluationTests, Demo2EvaluationTests). This test exists to
 // produce a stable artefact the dissertation can quote directly; re-run via
 // `dotnet test` to refresh.
-[Trait("Category", "Integration")]
+[Trait("Category", "Research")]
 public sealed class StrategyComparisonTests : IfcTestBase
 {
     private const double VOXEL_SIZE = 0.25;
