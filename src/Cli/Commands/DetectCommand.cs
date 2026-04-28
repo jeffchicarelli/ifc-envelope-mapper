@@ -1,9 +1,11 @@
 using System.CommandLine;
 using System.Diagnostics;
-using IfcEnvelopeMapper.Engine.Pipeline.BcfReport;
-using IfcEnvelopeMapper.Engine.Pipeline.Detection;
-using IfcEnvelopeMapper.Engine.Pipeline.JsonReport;
-using IfcEnvelopeMapper.Ifc.Loading;
+using IfcEnvelopeMapper.Application.Reports;
+using IfcEnvelopeMapper.Domain.Detection;
+using IfcEnvelopeMapper.Domain.Services;
+using IfcEnvelopeMapper.Infrastructure.Detection;
+using IfcEnvelopeMapper.Infrastructure.Ifc.Loading;
+using IfcEnvelopeMapper.Infrastructure.Persistence;
 
 namespace IfcEnvelopeMapper.Cli.Commands;
 
@@ -66,19 +68,19 @@ public static class DetectCommand
         switch (strategy)
         {
             case "voxel":
-                impl = new VoxelFloodFillStrategy(voxelSize: voxelSize);
-                Console.WriteLine($"Running VoxelFloodFillStrategy (voxelSize={voxelSize:F3} m)...");
+                impl = new VoxelFloodFillDetector(voxelSize: voxelSize);
+                Console.WriteLine($"Running VoxelFloodFillDetector (voxelSize={voxelSize:F3} m)...");
                 break;
             case "raycast":
-                impl = new RayCastingStrategy();
-                Console.WriteLine("Running RayCastingStrategy (numRays=8, jitterDeg=5°, hitRatio=0.5)...");
+                impl = new RayCastingDetector();
+                Console.WriteLine("Running RayCastingDetector (numRays=8, jitterDeg=5°, hitRatio=0.5)...");
                 break;
             default:
                 throw new InvalidOperationException($"Unknown strategy: {strategy}");
         }
 
         var loader = new XbimModelLoader();
-        var model = loader.Load(input.FullName);
+        using var model = loader.Load(input.FullName);
 
         var sw = Stopwatch.StartNew();
         var result = impl.Detect(model.Elements);
@@ -91,12 +93,12 @@ public static class DetectCommand
             switch (output.Extension.ToLowerInvariant())
             {
                 case ".json":
-                    var report = ReportBuilder.Build(input.FullName, strategy, impl.Config, result, sw.Elapsed);
-                    JsonReportWriter.Write(report, output.FullName);
+                    var report = JsonReportBuilder.Build(input.FullName, strategy, impl.Config, result, sw.Elapsed);
+                    new JsonReportWriter().Write(report, output.FullName);
                     break;
                 case ".bcf":
                 case ".bcfzip":
-                    BcfWriter.Write(BcfBuilder.Build(result), output.FullName);
+                    new BcfWriter().Write(BcfBuilder.Build(result), output.FullName);
                     break;
                 default:
                     throw new ArgumentException(
