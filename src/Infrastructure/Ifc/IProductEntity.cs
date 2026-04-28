@@ -8,8 +8,12 @@ namespace IfcEnvelopeMapper.Infrastructure.Ifc;
 /// </summary>
 public interface IProductEntity
 {
+    /// <summary>Returns the raw xBIM product handle.</summary>
     IIfcProduct GetIfcProduct();
+    /// <summary>Returns the site spatial parent, or <c>null</c> if not present in the hierarchy.</summary>
     IIfcSite? GetIfcSite();
+    /// <summary>Returns the building spatial parent, or <c>null</c> if not present in the hierarchy.</summary>
     IIfcBuilding? GetIfcBuilding();
+    /// <summary>Returns the storey spatial parent, or <c>null</c> if not present in the hierarchy.</summary>
     IIfcBuildingStorey? GetIfcStorey();
 }

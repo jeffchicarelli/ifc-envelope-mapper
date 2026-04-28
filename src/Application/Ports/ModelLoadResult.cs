@@ -11,9 +11,13 @@ public sealed class ModelLoadResult : IDisposable
 {
     private readonly IDisposable _lifetime;
 
+    /// <summary>Individual constructive elements loaded from the IFC file, ready for detection.</summary>
     public IReadOnlyList<IElement> Elements { get; }
+    /// <summary>Aggregate products (e.g. IfcCurtainWall) whose children are included in <see cref="Elements"/>.</summary>
     public IReadOnlyList<IElement> Composites { get; }
+    /// <summary>Absolute path to the source IFC file.</summary>
     public string FilePath { get; }
+    /// <summary>IFC schema identifier read from the file header (e.g. <c>"IFC4"</c>).</summary>
     public string SchemaVersion { get; }
 
     public ModelLoadResult(
@@ -30,5 +34,6 @@ public sealed class ModelLoadResult : IDisposable
         SchemaVersion = schemaVersion;
     }
 
+    /// <summary>Releases the underlying xBIM store, invalidating all lazy element accessors.</summary>
     public void Dispose() => _lifetime.Dispose();
 }

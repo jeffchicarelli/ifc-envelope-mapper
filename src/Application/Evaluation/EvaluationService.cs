@@ -6,16 +6,14 @@ using IfcEnvelopeMapper.Domain.Services;
 namespace IfcEnvelopeMapper.Application.Evaluation;
 
 /// <summary>
-/// End-to-end evaluation for a single IFC + ground-truth pair:
-/// <c>load → detect → read GT → compute metrics</c>.
-/// Returns the full <see cref="EvaluationResult"/> so callers can print summary
-/// stats and also drill into individual classifications (e.g., tests that
-/// visualize false positives/negatives via <c>GeometryDebug</c>).
-/// <para>The ground-truth CSV must already exist. To bootstrap it for a new
-/// model, call <c>GroundTruthGenerator.GenerateFromIfc</c> first.</para>
+/// Runs the full evaluation pipeline for one IFC + ground-truth pair:
+/// load → detect → read ground truth → compute metrics.
+/// Requires the ground-truth CSV to exist; use
+/// <c>GroundTruthGenerator.GenerateFromIfc</c> to bootstrap it.
 /// </summary>
 public static class EvaluationService
 {
+    /// <summary>Runs the load → detect → read-ground-truth → compute-metrics pipeline for one IFC file and returns the result.</summary>
     public static EvaluationResult EvaluateDetection(
         string ifcPath,
         string groundTruthPath,

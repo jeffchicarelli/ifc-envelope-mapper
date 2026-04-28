@@ -7,5 +7,6 @@ namespace IfcEnvelopeMapper.Application.Ports;
 /// </summary>
 public interface IGroundTruthReader
 {
+    /// <summary>Reads all labelled records from the source at <paramref name="path"/>.</summary>
     IReadOnlyList<GroundTruthRecord> Read(string path);
 }

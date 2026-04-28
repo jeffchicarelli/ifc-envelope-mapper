@@ -4,9 +4,9 @@ using IfcEnvelopeMapper.Domain.Interfaces;
 namespace IfcEnvelopeMapper.Domain.Surface;
 
 /// <summary>
-/// The full exterior skin of the building — every outward-facing <see cref="Face"/>,
-/// grouped into a single closed mesh. Downstream stages slice the envelope into
-/// per-orientation <see cref="Facade"/>s.
+/// Aggregate of every outward-facing <see cref="Face"/>, combined into a single
+/// closed mesh (<see cref="Shell"/>). Sliced into per-orientation
+/// <see cref="Facade"/>s by <see cref="Domain.Services.IFacadeGrouper"/>.
 ///
 ///      ╱────────────╲
 ///     ╱             ╱│        Shell    = DMesh3 wrapping the whole exterior
@@ -19,8 +19,11 @@ namespace IfcEnvelopeMapper.Domain.Surface;
 /// </summary>
 public sealed class Envelope
 {
+    /// <summary>Merged mesh of all exterior faces.</summary>
     public DMesh3 Shell { get; }
+    /// <summary>Individual faces that make up the exterior skin.</summary>
     public IReadOnlyList<Face> Faces { get; }
+    /// <summary>Distinct elements that contribute at least one face to the envelope.</summary>
     public IReadOnlyList<IElement> Elements { get; }
 
     public Envelope(DMesh3 shell, IReadOnlyList<Face> faces)

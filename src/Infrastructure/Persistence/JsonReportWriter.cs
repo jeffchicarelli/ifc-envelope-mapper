@@ -5,9 +5,8 @@ using IfcEnvelopeMapper.Application.Reports;
 namespace IfcEnvelopeMapper.Infrastructure.Persistence;
 
 /// <summary>
-/// Serialises a <see cref="DetectionReport"/> to disk as indented JSON with
-/// camelCase property names (matches the JavaScript ecosystem the dissertation
-/// viewer code is in). Creates the parent directory if it doesn't exist.
+/// Serialises a <see cref="DetectionReport"/> to disk as indented JSON
+/// with camelCase property names. Creates the parent directory if absent.
 /// </summary>
 public sealed class JsonReportWriter : IJsonReportWriter
 {
@@ -17,6 +16,7 @@ public sealed class JsonReportWriter : IJsonReportWriter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    /// <inheritdoc/>
     public void Write(DetectionReport report, string outputPath)
     {
         var dir = Path.GetDirectoryName(outputPath);

@@ -21,6 +21,7 @@ public static class BcfBuilder
     private const double STANDOFF_FACTOR       = 2.0;
     private const double CameraElevationFactor = 0.3;
 
+    /// <summary>Builds a <see cref="BcfPackage"/> from the exterior elements in <paramref name="result"/>, one topic per element, sorted by GlobalId.</summary>
     public static BcfPackage Build(DetectionResult result)
     {
         var topics = result.Classifications

@@ -3,6 +3,7 @@ using IfcEnvelopeMapper.Domain.Voxel;
 
 namespace IfcEnvelopeMapper.Domain.Extensions;
 
+/// <summary>Extension methods on <see cref="Voxel.VoxelGrid3D"/>.</summary>
 public static class VoxelGrid3DExtensions
 {
     private const double IdentityEpsilon = 1e-9;

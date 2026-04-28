@@ -28,8 +28,10 @@ public sealed class ElementFilter
 
     private readonly IReadOnlySet<string> _types;
 
+    /// <summary>Creates a filter using <paramref name="types"/> when provided, otherwise the built-in allow-list.</summary>
     public ElementFilter(IReadOnlySet<string>? types = null)
         => _types = types ?? DefaultTypes;
 
+    /// <summary><c>true</c> when <paramref name="ifcType"/> is in the allow-list.</summary>
     public bool Include(string ifcType) => _types.Contains(ifcType);
 }

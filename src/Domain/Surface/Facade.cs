@@ -17,8 +17,11 @@ namespace IfcEnvelopeMapper.Domain.Surface;
 /// </summary>
 public sealed class Facade
 {
+    /// <summary>Unique identifier within the parent envelope (e.g. "facade-00").</summary>
     public string Id { get; }
+    /// <summary>The envelope this facade was sliced from.</summary>
     public Envelope Envelope { get; }
+    /// <summary>Faces grouped into this facade by orientation and spatial proximity.</summary>
     public IReadOnlyList<Face> Faces { get; }
 
     /// <summary>Mesh of just this facade's faces — subset of <see cref="Envelope.Shell"/>.</summary>
@@ -29,6 +32,7 @@ public sealed class Facade
 
     /// <summary>Compass bearing of <see cref="DominantNormal"/> projected onto XY, in degrees from +Y (north).</summary>
     public double AzimuthDegrees { get; }
+    /// <summary>Distinct elements that contribute at least one face to this facade.</summary>
     public IReadOnlyList<IElement> Elements { get; }
 
     public Facade(

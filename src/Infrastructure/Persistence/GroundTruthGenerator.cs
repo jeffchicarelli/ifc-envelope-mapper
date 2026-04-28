@@ -4,12 +4,19 @@ using Xbim.Ifc4.Interfaces;
 
 namespace IfcEnvelopeMapper.Infrastructure.Persistence;
 
+/// <summary>
+/// Reads IFC <c>IsExternal</c> property sets and writes a ground-truth CSV
+/// for the elements returned by <see cref="XbimModelLoader"/>.
+/// </summary>
 public static class GroundTruthGenerator
 {
-    // Extract IsExternal psets from an IFC file and emit a ground-truth CSV.
-    // Only elements present in `loadedElements` are emitted (matches the filter
-    // applied by XbimModelLoader); IsExternal=null becomes "unknown".
-    // Returns the number of records written.
+    /// <summary>
+    /// Opens <paramref name="ifcPath"/>, reads <c>IsExternal</c> from every
+    /// <c>IIfcBuildingElement</c> property set, and writes a <c>GlobalId,IsExterior,Note</c>
+    /// CSV to <paramref name="csvOutputPath"/>. Only elements in <paramref name="loadedElements"/>
+    /// are emitted; <c>IsExternal == null</c> becomes <c>"unknown"</c>.
+    /// Returns the number of records written.
+    /// </summary>
     public static int GenerateFromIfc(
         string ifcPath,
         string csvOutputPath,

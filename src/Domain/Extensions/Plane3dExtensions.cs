@@ -2,6 +2,7 @@ using g4;
 
 namespace IfcEnvelopeMapper.Domain.Extensions;
 
+/// <summary>Extension methods on <see cref="g4.Plane3d"/>.</summary>
 public static class Plane3dExtensions
 {
     private const double ParallelThreshold = 0.99;

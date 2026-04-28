@@ -2,6 +2,7 @@ using g4;
 
 namespace IfcEnvelopeMapper.Domain.Extensions;
 
+/// <summary>Extension methods on <see cref="g4.AxisAlignedBox3d"/>.</summary>
 public static class AxisAlignedBox3dExtensions
 {
     /// <summary>

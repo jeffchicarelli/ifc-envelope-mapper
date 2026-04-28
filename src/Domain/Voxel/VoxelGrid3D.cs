@@ -7,18 +7,14 @@ namespace IfcEnvelopeMapper.Domain.Voxel;
 /// stores a <see cref="VoxelState"/>, the set of element GlobalIds that occupy it,
 /// and a room id assigned by <see cref="GrowVoid"/>.
 ///
-///               +Z
-///                │       ┌──┬──┬──┐
-///                │      ╱   ╱   ╱│
-///                │     ┌──┬──┬──┐│    NX × NY × NZ cubic cells
-///                │    ╱   ╱   ╱│┘│    each of side VoxelSize
-///                │   ┌──┬──┬──┐│┘│
-///                │   │  │  │  │┘│
-///                │   ├──┼──┼──┤┘       indexed by (x, y, z) ∈ [0, N*)
-///                │   │  │  │  │
-///                │   └──┴──┴──┘
-///                └───────────────▶ +X
-///              +Y
+///   Z↑  ┌──┬──┬──┐
+///    2  │  │  │  │
+///       ├──┼──┼──┤    NX × NY × NZ cells, each of side VoxelSize.
+///    1  │  │  │  │    Depth (Y) extends into the page.
+///       ├──┼──┼──┤    Indices (x, y, z) ∈ [0, NX) × [0, NY) × [0, NZ).
+///    0  │  │  │  │
+///       └──┴──┴──┘──▶ X
+///        0  1  2
 ///
 /// The three-phase fill (<see cref="GrowExterior"/> → <see cref="GrowInterior"/>
 /// → <see cref="GrowVoid"/>) is the core of the voxel detection strategy
@@ -30,12 +26,16 @@ public sealed class VoxelGrid3D
     private readonly HashSet<string>[,,] _occupants;
     private readonly int[,,] _roomIds;
 
+    /// <summary>World-space bounding box the grid was constructed over.</summary>
     public AxisAlignedBox3d Bounds { get; }
+    /// <summary>Side length of each cubic cell, in world units.</summary>
     public double VoxelSize { get; }
 
     /// <summary>Cell counts along each axis — <c>⌈bounds.Width / VoxelSize⌉</c>, etc.</summary>
     public int NX { get; }
+    /// <summary>Cell count along Y — <c>⌈bounds.Height / VoxelSize⌉</c>.</summary>
     public int NY { get; }
+    /// <summary>Cell count along Z — <c>⌈bounds.Depth / VoxelSize⌉</c>.</summary>
     public int NZ { get; }
 
     public VoxelGrid3D(AxisAlignedBox3d bounds, double voxelSize)
@@ -52,12 +52,14 @@ public sealed class VoxelGrid3D
         _roomIds   = new int[NX, NY, NZ];
     }
 
+    /// <summary>Gets or sets the <see cref="VoxelState"/> of the cell at <paramref name="c"/>.</summary>
     public VoxelState this[VoxelCoord c]
     {
         get => _states[c.X, c.Y, c.Z];
         set => _states[c.X, c.Y, c.Z] = value;
     }
 
+    /// <summary><c>true</c> when all indices of <paramref name="c"/> fall within the grid extents.</summary>
     public bool IsInBounds(VoxelCoord c) =>
         c.X >= 0 && c.X < NX &&
         c.Y >= 0 && c.Y < NY &&
@@ -88,18 +90,21 @@ public sealed class VoxelGrid3D
         return new AxisAlignedBox3d(min, min + new Vector3d(VoxelSize, VoxelSize, VoxelSize));
     }
 
+    /// <summary>Records that the element identified by <paramref name="globalId"/> occupies cell <paramref name="c"/>.</summary>
     public void AddOccupant(VoxelCoord c, string globalId)
     {
         _occupants[c.X, c.Y, c.Z] ??= new HashSet<string>(StringComparer.Ordinal);
         _occupants[c.X, c.Y, c.Z].Add(globalId);
     }
 
+    /// <summary>Returns the set of element GlobalIds whose meshes intersect cell <paramref name="c"/>. Empty when no occupants were recorded.</summary>
     public IReadOnlySet<string> OccupantsOf(VoxelCoord c) =>
         _occupants[c.X, c.Y, c.Z] ?? (IReadOnlySet<string>)EmptySet;
 
     private static readonly IReadOnlySet<string> EmptySet =
         new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>All cells that list <paramref name="globalId"/> as an occupant.</summary>
     public IEnumerable<VoxelCoord> VoxelsOccupiedBy(string globalId)
     {
         for (var x = 0; x < NX; x++)
@@ -118,6 +123,7 @@ public sealed class VoxelGrid3D
         }
     }
 
+    /// <summary>All cells currently set to <paramref name="state"/>.</summary>
     public IEnumerable<VoxelCoord> VoxelsByState(VoxelState state)
     {
         for (var x = 0; x < NX; x++)
@@ -135,6 +141,7 @@ public sealed class VoxelGrid3D
         }
     }
 
+    /// <summary>All cells whose coordinates fall inside the world-space <paramref name="box"/>, clipped to the grid extents.</summary>
     public IEnumerable<VoxelCoord> VoxelsInBbox(AxisAlignedBox3d box)
     {
         var min = WorldToVoxel(box.Min) ?? new VoxelCoord(0, 0, 0);
@@ -185,9 +192,9 @@ public sealed class VoxelGrid3D
     /// reachable <c>Unknown</c> cell as <see cref="VoxelState.Exterior"/>.
     /// </summary>
     /// <remarks>
-    /// <c>(0,0,0)</c> is guaranteed to start outside the model: callers expand the
-    /// building's bounding box by <c>2 × voxelSize</c> before constructing the grid,
-    /// so there is always a free shell around the geometry.
+    /// Requires <c>(0,0,0)</c> to lie outside all model geometry. This holds when
+    /// the grid is constructed over a bounding box padded by at least
+    /// <c>2 × voxelSize</c> on each side.
     /// </remarks>
     public void GrowExterior()
     {
@@ -233,6 +240,7 @@ public sealed class VoxelGrid3D
         }
     }
 
+    /// <summary>Room number assigned by <see cref="GrowVoid"/>; 0 if this cell is not Interior.</summary>
     public int GetRoomId(VoxelCoord c) => _roomIds[c.X, c.Y, c.Z];
 
     /// <summary>

@@ -14,6 +14,7 @@ public sealed class GroundTruthCsvReader : IGroundTruthReader
 {
     private const string ExpectedHeader = "GlobalId,IsExterior,Note";
 
+    /// <inheritdoc/>
     public IReadOnlyList<GroundTruthRecord> Read(string path)
     {
         var lines = File.ReadAllLines(path);

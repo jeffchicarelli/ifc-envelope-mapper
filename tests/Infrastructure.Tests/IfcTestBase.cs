@@ -20,14 +20,17 @@ public abstract class IfcTestBase
 
     static IfcTestBase()
     {
-        var loggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Warning)
-            .AddFilter("IfcEnvelopeMapper", LogLevel.Information));
+        var loggerFactory = LoggerFactory.Create
+        (
+            b => b
+                .AddConsole()
+                .SetMinimumLevel(LogLevel.Warning)
+                .AddFilter("IfcEnvelopeMapper", LogLevel.Information)
+        );
+
         AppLog.Configure(loggerFactory);
 
-        var glbPath      = Environment.GetEnvironmentVariable("IFC_DEBUG_GLB")
-                           ?? Path.Combine(Path.GetTempPath(), "ifc-debug-output.glb");
+        var glbPath = Environment.GetEnvironmentVariable("IFC_DEBUG_GLB") ?? Path.Combine(Path.GetTempPath(), "ifc-debug-output.glb");
         var launchServer = Environment.GetEnvironmentVariable("IFC_DEBUG_VIEWER") == "true";
         GeometryDebug.Configure(glbPath, launchServer);
     }
@@ -66,9 +69,11 @@ public abstract class IfcTestBase
     }
 
     protected static string FindModel(string fileName)
-        => FindUpward(Path.Combine("data", "models", fileName))
-           ?? throw new FileNotFoundException(
-               $"{fileName} not found in any parent of " + Directory.GetCurrentDirectory());
+    {
+        return FindUpward(Path.Combine("data", "models", fileName))
+               ?? throw new FileNotFoundException(
+                   $"{fileName} not found in any parent of " + Directory.GetCurrentDirectory());
+    }
 
     protected static string GroundTruthPath(string fileName)
     {

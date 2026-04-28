@@ -7,5 +7,6 @@ namespace IfcEnvelopeMapper.Application.Ports;
 /// </summary>
 public interface IJsonReportWriter
 {
+    /// <summary>Serialises <paramref name="report"/> to indented JSON at <paramref name="outputPath"/>.</summary>
     void Write(DetectionReport report, string outputPath);
 }

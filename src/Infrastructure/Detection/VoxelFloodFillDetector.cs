@@ -48,8 +48,8 @@ namespace IfcEnvelopeMapper.Infrastructure.Detection;
 /// </summary>
 /// <remarks>
 /// <c>voxelSize</c> trades accuracy for cost: halving it multiplies rasterization
-/// and flood-fill work by ~8. 0.5 m matches the default in the reference paper and
-/// empirically resolves typical wall/slab thicknesses.
+/// and flood-fill work by ~8. 0.5 m is the default from van der Vaart (2022) and
+/// resolves typical wall/slab thicknesses in practice.
 /// </remarks>
 public sealed class VoxelFloodFillDetector : IEnvelopeDetector
 {
@@ -59,15 +59,18 @@ public sealed class VoxelFloodFillDetector : IEnvelopeDetector
     private readonly double _voxelSize;
     private readonly IFaceExtractor _faceExtractor;
 
+    /// <summary>Creates a detector with the given voxel resolution.</summary>
     public VoxelFloodFillDetector(double voxelSize = 0.5, IFaceExtractor? faceExtractor = null)
     {
         _voxelSize = voxelSize;
         _faceExtractor = faceExtractor ?? new PcaFaceExtractor();
     }
 
+    /// <summary>Returns the active voxel parameters as a serialisable config snapshot.</summary>
     public StrategyConfig Config =>
         new(VoxelSize: _voxelSize, NumRays: null, JitterDeg: null, HitRatio: null);
 
+    /// <inheritdoc/>
     public DetectionResult Detect(IEnumerable<IElement> elements)
     {
         var elementsList = elements.ToList();

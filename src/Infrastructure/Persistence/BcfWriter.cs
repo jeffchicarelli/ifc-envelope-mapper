@@ -22,6 +22,7 @@ public sealed class BcfWriter : IBcfWriter
         Indent   = true,
     };
 
+    /// <inheritdoc/>
     public void Write(BcfPackage package, string outputPath)
     {
         var dir = Path.GetDirectoryName(outputPath);

@@ -19,8 +19,7 @@ namespace IfcEnvelopeMapper.Infrastructure.Detection;
 ///    └───────────┘  normal        └─────────────┘ distance, fit   └───────────────┘
 ///
 /// Fitting the plane from all vertex points (rather than reusing one triangle's
-/// normal) is more robust on slightly curved or noisy surfaces — common in IFC
-/// exports where a logically flat wall can carry small triangulation wobble.
+/// normal) is more robust on slightly curved or noisy surfaces.
 /// </summary>
 public sealed class PcaFaceExtractor : IFaceExtractor
 {
@@ -29,6 +28,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
     private readonly double _normalAngleTolerance;   // radians
     private readonly double _planeDistanceTolerance; // metres
 
+    /// <summary>Creates an extractor with the given normal-angle and plane-distance grouping tolerances.</summary>
     public PcaFaceExtractor(
         double normalAngleToleranceDeg = 5.0,
         double planeDistanceTolerance  = 0.05)
@@ -37,6 +37,7 @@ public sealed class PcaFaceExtractor : IFaceExtractor
         _planeDistanceTolerance = planeDistanceTolerance;
     }
 
+    /// <inheritdoc/>
     public IReadOnlyList<Face> Extract(IElement element)
     {
         var mesh = element.GetMesh();

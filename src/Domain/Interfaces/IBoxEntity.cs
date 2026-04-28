@@ -7,5 +7,6 @@ namespace IfcEnvelopeMapper.Domain.Interfaces;
 /// </summary>
 public interface IBoxEntity
 {
+    /// <summary>Returns the world-space axis-aligned bounding box.</summary>
     AxisAlignedBox3d GetBoundingBox();
 }

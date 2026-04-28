@@ -4,20 +4,20 @@ using IfcEnvelopeMapper.Domain.Interfaces;
 namespace IfcEnvelopeMapper.Domain.Surface;
 
 /// <summary>
-/// A near-planar region of an element's mesh — one "side" of the element, in practice.
-/// A <see cref="Face"/> bundles the source triangles with their best-fit plane so later
-/// stages can reason about orientation without re-scanning the geometry.
+/// A near-planar region of an element's mesh. Bundles the source triangle ids
+/// with a best-fit plane so orientation queries require no further mesh traversal.
 ///
-///     mesh triangles                    Face
+///     mesh triangles                      Face
 ///      ┌───────┐                         ┌──────────────────┐
-///      │△△△△△△│  ── PcaFaceExtractor ──▶│ TriangleIds[…]   │
-///      │△△△△△△│   groups coplanar tris  │ FittedPlane   ─▶ n̂│
+///      │△△△△△△│  ── IFaceExtractor ────▶│ TriangleIds[…]   │
+///      │△△△△△△│   groups coplanar tris  │ FittedPlane  ─▶ n̂│
 ///      └───────┘                         │ Area, Centroid   │
 ///                                        └──────────────────┘
 ///
 /// </summary>
 public sealed class Face
 {
+    /// <summary>The source element this face belongs to.</summary>
     public IElement Element { get; }
 
     /// <summary>Ids of the source element's triangles that make up this face.</summary>
@@ -28,7 +28,9 @@ public sealed class Face
 
     /// <summary>Unit outward normal of <see cref="FittedPlane"/>.</summary>
     public Vector3d Normal => FittedPlane.Normal;
+    /// <summary>Surface area in square world units.</summary>
     public double Area { get; }
+    /// <summary>Area-weighted centroid in world coordinates.</summary>
     public Vector3d Centroid { get; }
 
     public Face(

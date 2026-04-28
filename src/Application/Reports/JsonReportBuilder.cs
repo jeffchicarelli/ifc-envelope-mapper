@@ -11,6 +11,7 @@ public static class JsonReportBuilder
 {
     public const string SCHEMA_VERSION = "1";
 
+    /// <summary>Assembles a <see cref="DetectionReport"/> from the detection output and run metadata.</summary>
     public static DetectionReport Build(
         string           ifcPath,
         string           strategy,

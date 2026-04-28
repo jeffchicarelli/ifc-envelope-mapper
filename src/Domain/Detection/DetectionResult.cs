@@ -8,7 +8,9 @@ namespace IfcEnvelopeMapper.Domain.Detection;
 /// </summary>
 public sealed class DetectionResult
 {
+    /// <summary>Derived exterior skin of the model.</summary>
     public Envelope Envelope { get; }
+    /// <summary>One classification per input element, in strategy-processing order.</summary>
     public IReadOnlyList<ElementClassification> Classifications { get; }
 
     public DetectionResult(Envelope envelope, IReadOnlyList<ElementClassification> classifications)

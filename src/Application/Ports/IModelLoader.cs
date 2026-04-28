@@ -6,5 +6,6 @@ namespace IfcEnvelopeMapper.Application.Ports;
 /// </summary>
 public interface IModelLoader
 {
+    /// <summary>Opens the IFC file at <paramref name="ifcPath"/> and returns a live result. The caller owns the lifetime — dispose when done.</summary>
     ModelLoadResult Load(string ifcPath);
 }

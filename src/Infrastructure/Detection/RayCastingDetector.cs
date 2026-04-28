@@ -44,6 +44,7 @@ public sealed class RayCastingDetector : IEnvelopeDetector
     private readonly double _hitRatio;
     private readonly IFaceExtractor _faceExtractor;
 
+    /// <summary>Creates a detector with the given per-triangle ray parameters.</summary>
     public RayCastingDetector(
         int numRays = 8,
         double jitterDeg = 5.0,
@@ -56,10 +57,12 @@ public sealed class RayCastingDetector : IEnvelopeDetector
         _faceExtractor = faceExtractor ?? new PcaFaceExtractor();
     }
 
+    /// <summary>Returns the active ray-casting parameters as a serialisable config snapshot.</summary>
     public StrategyConfig Config =>
         new(VoxelSize: null, NumRays: _numRays,
             JitterDeg: _jitterRad * 180.0 / Math.PI, HitRatio: _hitRatio);
 
+    /// <inheritdoc/>
     public DetectionResult Detect(IEnumerable<IElement> elements)
     {
         var elementsList = elements.ToList();

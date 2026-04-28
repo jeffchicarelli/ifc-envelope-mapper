@@ -42,6 +42,7 @@ public sealed class DbscanFacadeGrouper : IFacadeGrouper
     /// </summary>
     public double AdjacencyM { get; }
 
+    /// <summary>Creates a grouper with the given DBSCAN and adjacency parameters.</summary>
     public DbscanFacadeGrouper(
         double epsilonDeg = 15.0,
         int    minFaces   = 3,

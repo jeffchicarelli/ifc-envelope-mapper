@@ -2,6 +2,7 @@ using g4;
 
 namespace IfcEnvelopeMapper.Domain.Extensions;
 
+/// <summary>Extension methods on <see cref="g4.Vector3d"/>.</summary>
 public static class Vector3dExtensions
 {
     /// <summary>

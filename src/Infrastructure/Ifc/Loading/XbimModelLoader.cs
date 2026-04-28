@@ -23,11 +23,13 @@ public sealed class XbimModelLoader : IModelLoader
 {
     private readonly ElementFilter _filter;
 
+    /// <summary>Creates a loader using <paramref name="filter"/> when provided, otherwise the built-in element allow-list.</summary>
     public XbimModelLoader(ElementFilter? filter = null)
     {
         _filter = filter ?? new ElementFilter();
     }
 
+    /// <summary>Opens the IFC file at <paramref name="path"/>, tessellates all geometry, and returns a live <see cref="ModelLoadResult"/>.</summary>
     public ModelLoadResult Load(string path)
     {
         IfcStore model;

@@ -10,7 +10,9 @@ namespace IfcEnvelopeMapper.Domain.Detection;
 /// </summary>
 public sealed class ElementClassification
 {
+    /// <summary>The classified element.</summary>
     public IElement Element { get; }
+    /// <summary><c>true</c> when the element belongs to the exterior envelope.</summary>
     public bool IsExterior { get; }
 
     /// <summary>Faces of <see cref="Element"/> that were judged to face outward. Empty for interior elements.</summary>

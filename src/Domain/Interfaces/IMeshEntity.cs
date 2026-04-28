@@ -7,5 +7,6 @@ namespace IfcEnvelopeMapper.Domain.Interfaces;
 /// </summary>
 public interface IMeshEntity
 {
+    /// <summary>Returns the triangulated geometry in world coordinates.</summary>
     DMesh3 GetMesh();
 }

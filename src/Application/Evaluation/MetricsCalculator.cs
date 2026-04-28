@@ -11,6 +11,7 @@ namespace IfcEnvelopeMapper.Application.Evaluation;
 /// </summary>
 public static class MetricsCalculator
 {
+    /// <summary>Computes confusion-matrix counts by matching each classification to the ground-truth table by <c>GlobalId</c>.</summary>
     public static DetectionCounts Compute(
         IReadOnlyList<ElementClassification> classifications,
         IReadOnlyList<GroundTruthRecord> groundTruth)

@@ -14,10 +14,14 @@ public class Storey :
 {
     protected readonly IIfcBuildingStorey _storey;
 
+    /// <inheritdoc/>
     public string GlobalId => _storey.GlobalId;
+    /// <inheritdoc/>
     public string? Name    => _storey.Name;
+    /// <summary>Storey elevation above site datum in world units. Returns 0.0 when the IFC attribute is absent.</summary>
     public double Elevation => _storey.Elevation ?? 0.0;
 
+    /// <summary>Returns the underlying xBIM storey handle.</summary>
     public IIfcBuildingStorey GetIfcStorey() => _storey;
 
     public bool Equals(Storey? other) =>

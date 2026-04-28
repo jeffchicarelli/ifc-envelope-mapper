@@ -2,6 +2,7 @@ using g4;
 
 namespace IfcEnvelopeMapper.Domain.Extensions;
 
+/// <summary>Extension methods on <see cref="g4.DMesh3"/>.</summary>
 public static class DMesh3Extensions
 {
     private const double DegenerateNormalSq = 1e-20;
@@ -42,9 +43,7 @@ public static class DMesh3Extensions
 
     /// <summary>
     /// Translates every vertex of <paramref name="mesh"/> by <paramref name="offset"/>
-    /// in place. Triangle indices and topology are unchanged. Used to re-anchor
-    /// georeferenced IFC models near the origin so bounding-box-driven structures
-    /// (e.g. <c>VoxelGrid3D</c>) don't overflow .NET's array-size limits.
+    /// in place. Triangle indices and topology are unchanged.
     /// </summary>
     public static void Translate(this DMesh3 mesh, Vector3d offset)
     {

@@ -6,6 +6,8 @@ namespace IfcEnvelopeMapper.Domain.Interfaces;
 /// </summary>
 public interface IIfcEntity
 {
+    /// <summary>22-character IFC STEP GlobalId, unique within the file.</summary>
     string GlobalId { get; }
+    /// <summary>Optional human-readable label assigned by the IFC author.</summary>
     string? Name { get; }
 }
