@@ -1,10 +1,8 @@
 using IfcEnvelopeMapper.Engine.Pipeline.Evaluation;
-using IfcEnvelopeMapper.Engine.Pipeline.Evaluation.Types;
 using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 
 
 #if DEBUG
-using IfcEnvelopeMapper.Engine.Debug.Api;
 #endif
 
 namespace IfcEnvelopeMapper.Tests.Integration;
@@ -46,7 +44,6 @@ public sealed class EvaluationPipelineTests : IfcTestBase
 
         // Act
         var result = EvaluationPipeline.EvaluateDetection(IfcPath, gtPath, strategy);
-        //EmitDisagreementGlb(result, nameof(Pipeline_OnDuplex_ProducesExpectedCounts));
 
         // Assert
         result.Counts.TruePositives.Should().BeInRange(EXPECTED_TP - TOLERANCE, EXPECTED_TP + TOLERANCE);
@@ -68,38 +65,5 @@ public sealed class EvaluationPipelineTests : IfcTestBase
         // Assert
         result.Counts.Precision.Should().BeGreaterThanOrEqualTo(PRECISION_FLOOR);
         result.Counts.Recall.Should().BeGreaterThanOrEqualTo(RECALL_FLOOR);
-    }
-
-    // Always emits — the GLB is cheap and on assertion failure the developer
-    // already has the artefact ready to open. No try/catch acrobatics needed.
-    private static void EmitDisagreementGlb(EvaluationResult result, string testName)
-    {
-#if DEBUG
-        var glbPath = Path.Combine(Path.GetTempPath(), $"EvaluationPipelineTests_{testName}.glb");
-        GeometryDebug.Configure(glbPath, launchServer: false);
-        GeometryDebug.Clear();
-
-        var gtByGid = result.GroundTruth
-            .Where(g => g.IsExterior.HasValue)
-            .ToDictionary(g => g.GlobalId, g => g.IsExterior!.Value, StringComparer.Ordinal);
-
-        foreach (var c in result.Detection.Classifications)
-        {
-            if (!gtByGid.TryGetValue(c.Element.GlobalId, out var gt))
-            {
-                continue;
-            }
-
-            // TP=green, TN=gray, FP=red (claimed exterior, isn't), FN=orange (missed exterior).
-            var color = (c.IsExterior, gt) switch
-            {
-                (true,  true)  => "#00ff00",
-                (false, false) => "#888888",
-                (true,  false) => "#ff0000",
-                (false, true)  => "#ff8800",
-            };
-            GeometryDebug.Element(c.Element.GetMesh(), c.Element.GlobalId, c.Element.IfcType, color);
-        }
-#endif
     }
 }

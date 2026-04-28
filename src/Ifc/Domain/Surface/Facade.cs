@@ -1,5 +1,4 @@
 using g4;
-using IfcEnvelopeMapper.Ifc.Domain;
 
 namespace IfcEnvelopeMapper.Ifc.Domain.Surface;
 

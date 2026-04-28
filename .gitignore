@@ -52,6 +52,14 @@ data/models/**/*.ifc
 data/results/
 data/ground-truth/*.csv
 
+# External / non-redistributable IFC sets used locally for evaluation only.
+# Each subfolder groups models by experimental scenario; origin and license
+# vary per source, so they're kept out of the repo.
+data/models/airwell/
+data/models/others/
+data/models/spaces/
+data/models/structural/
+
 # Vendor assets (managed by libman/npm — not committed)
 **/wwwroot/lib/
 

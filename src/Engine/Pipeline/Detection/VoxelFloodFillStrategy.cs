@@ -4,19 +4,15 @@
 #endif
 
 using g4;
-using IfcEnvelopeMapper.Engine.Pipeline.Detection;
 using IfcEnvelopeMapper.Ifc.Domain;
 using IfcEnvelopeMapper.Ifc.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
 
-// Debug is a Debug-config-only ProjectReference — this using has to match
-// the same gate as the call sites below, otherwise Release can't resolve
-// the namespace.
 #if DEBUGMESH
-using IfcEnvelopeMapper.Engine.Debug;
-using IfcEnvelopeMapper.Engine.Debug.Api;
-using IfcEnvelopeMapper.Engine.Debug.Serialization;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
+using Microsoft.Extensions.Logging;
+using static IfcEnvelopeMapper.Core.Diagnostics.AppLog;
 #endif
 
 namespace IfcEnvelopeMapper.Engine.Pipeline.Detection;
@@ -74,49 +70,52 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         // Per-element emission: each mesh becomes its own glTF node tagged with
         // { globalId, ifcType } in extras. The viewer groups nodes by ifcType
         // for layer buttons and uses globalId for click-picking/highlighting.
-        foreach (var element in elementsList)
-        {
-            GeometryDebug.Element(element.GetMesh(), element.GlobalId, element.IfcType,
-                IfcTypePalette.For(element.IfcType));
-        }
+        GeometryDebug.Send(elementsList);
 #endif
 
         var grid = BuildGrid(elementsList);
         Rasterize(grid, elementsList);
 
 #if DEBUGMESH
-        // Sidecar JSON { "x,y,z": [globalIds...] } for viewer click-picking.
-        // Emitted right after rasterize — occupants only grow during Rasterize,
-        // so writing here captures the final mapping while the user can still
-        // step through the flood-fill stages.
-        SidecarWriter.WriteVoxelOccupants(grid);
-
-        var occupied = grid.VoxelsByState(VoxelState.Occupied).ToList();
-        Console.WriteLine($"occupied voxels: {occupied.Count}");
-        GeometryDebug.Voxels(grid, occupied, "#00aa00c0", "occupied");
+        Log.LogInformation("occupied voxels: {Count}", grid.VoxelsByState(VoxelState.Occupied).Count());
+        GeometryDebug.Send(grid, VoxelState.Occupied);
 #endif
 
         grid.GrowExterior();
         grid.FillGaps();
 
 #if DEBUGMESH
-        var exterior = grid.VoxelsByState(VoxelState.Exterior).ToList();
-        Console.WriteLine($"exterior voxels: {exterior.Count}");
-        GeometryDebug.Voxels(grid, exterior, "#0055ffc0", "exterior");
+        Log.LogInformation("exterior voxels: {Count}", grid.VoxelsByState(VoxelState.Exterior).Count());
+        GeometryDebug.Send(grid, VoxelState.Exterior);
 #endif
 
         grid.GrowInterior();
 
 #if DEBUGMESH
-        var interior = grid.VoxelsByState(VoxelState.Interior).ToList();
-        Console.WriteLine($"interior voxels: {interior.Count}");
-        GeometryDebug.Voxels(grid, interior, "#ff0000c0", "interior");
+        Log.LogInformation("interior voxels: {Count}", grid.VoxelsByState(VoxelState.Interior).Count());
+        GeometryDebug.Send(grid, VoxelState.Interior);
 #endif
 
         grid.GrowVoid();
 
+#if DEBUGMESH
+        Log.LogInformation("void voxels: {Count}", grid.VoxelsByState(VoxelState.Void).Count());
+        GeometryDebug.Send(grid, VoxelState.Void);
+#endif
+
         var exteriorIds = FindExteriorIds(grid);
         var (classifications, exteriorFaces) = Classify(elementsList, exteriorIds);
+
+#if DEBUGMESH
+        var externalElements = classifications
+                              .Where(c => c.IsExterior)
+                              .Select(c => c.Element)
+                              .ToList();
+
+        GeometryDebug.Send(externalElements, Color.Magenta);
+
+        Log.LogInformation("exterior elements: {Count}", externalElements.Count);
+#endif
 
         return new DetectionResult(
             new Envelope(new DMesh3(), exteriorFaces),
@@ -149,9 +148,9 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
                 }
 
                 var tri = mesh.GetTriangle(tid);
-                var v0  = mesh.GetVertex(tri.a);
-                var v1  = mesh.GetVertex(tri.b);
-                var v2  = mesh.GetVertex(tri.c);
+                var v0 = mesh.GetVertex(tri.a);
+                var v1 = mesh.GetVertex(tri.b);
+                var v2 = mesh.GetVertex(tri.c);
 
                 var triBbox = new AxisAlignedBox3d(v0, v0);
                 triBbox.Contain(v1);
@@ -160,7 +159,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
                 foreach (var coord in grid.VoxelsInBbox(triBbox))
                 {
                     var center = grid.VoxelToCenter(coord);
-                    var hs     = _voxelSize * 0.5;
+                    var hs = _voxelSize * 0.5;
                     var voxelBox = new AxisAlignedBox3d(
                         center - new Vector3d(hs, hs, hs),
                         center + new Vector3d(hs, hs, hs));
@@ -222,12 +221,12 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         HashSet<string> exteriorIds)
     {
         var classifications = new List<ElementClassification>(elements.Count);
-        var allFaces        = new List<Face>();
+        var allFaces = new List<Face>();
 
         foreach (var element in elements)
         {
-            var isExterior   = exteriorIds.Contains(element.GlobalId);
-            var faces        = isExterior
+            var isExterior = exteriorIds.Contains(element.GlobalId);
+            var faces = isExterior
                 ? _faceExtractor.Extract(element)
                 : Array.Empty<Face>();
 
@@ -248,10 +247,10 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
     {
         // Translate to box-center frame so the AABB becomes [-h, +h] on each axis.
         var ctr = box.Center;
-        var h   = new Vector3d(box.Width * 0.5, box.Height * 0.5, box.Depth * 0.5);
-        var a   = v0 - ctr;
-        var b   = v1 - ctr;
-        var d   = v2 - ctr;
+        var h = new Vector3d(box.Width * 0.5, box.Height * 0.5, box.Depth * 0.5);
+        var a = v0 - ctr;
+        var b = v1 - ctr;
+        var d = v2 - ctr;
 
         if (!OverlapsOnAxis(a, b, d, h, new Vector3d(1, 0, 0)))
         {
@@ -268,17 +267,17 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
             return false;
         }
 
-        var e0     = b - a;
-        var e1     = d - b;
-        var e2     = a - d;
+        var e0 = b - a;
+        var e1 = d - b;
+        var e2 = a - d;
         var normal = e0.Cross(e1);
         if (normal.LengthSquared > 1e-20 && !OverlapsOnAxis(a, b, d, h, normal))
         {
             return false;
         }
 
-        Vector3d[] edges    = [e0, e1, e2];
-        Vector3d[] boxAxes  = [new(1, 0, 0), new(0, 1, 0), new(0, 0, 1)];
+        Vector3d[] edges = [e0, e1, e2];
+        Vector3d[] boxAxes = [new(1, 0, 0), new(0, 1, 0), new(0, 0, 1)];
 
         foreach (var edge in edges)
         {
@@ -304,7 +303,7 @@ public sealed class VoxelFloodFillStrategy : IEnvelopeDetector
         var pa = a.Dot(axis);
         var pb = b.Dot(axis);
         var pc = c.Dot(axis);
-        var r  = h.x * Math.Abs(axis.x) + h.y * Math.Abs(axis.y) + h.z * Math.Abs(axis.z);
+        var r = h.x * Math.Abs(axis.x) + h.y * Math.Abs(axis.y) + h.z * Math.Abs(axis.z);
         return !(Math.Min(Math.Min(pa, pb), pc) > r || Math.Max(Math.Max(pa, pb), pc) < -r);
     }
 

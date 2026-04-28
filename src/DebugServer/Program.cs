@@ -211,7 +211,7 @@ static async Task ServeFileAsync(HttpListenerContext ctx, string path, string co
     // FileShare.ReadWrite | FileShare.Delete: the CLI atomically replaces the
     // GLB via write-tmp + File.Move(overwrite). File.ReadAllBytesAsync opens
     // with FileShare.Read (no Delete), so a concurrent rename is denied by
-    // Windows and the CLI throws UnauthorizedAccessException. Opening with
+    // Windows, and the CLI throws UnauthorizedAccessException. Opening with
     // Delete sharing lets the rename succeed — this handle keeps reading the
     // original file contents via its existing handle, and the next poll picks
     // up the new file.

@@ -1,6 +1,6 @@
-using IfcEnvelopeMapper.Engine.Debug.Serialization;
+using IfcEnvelopeMapper.Engine.Visualization.Serialization;
 
-namespace IfcEnvelopeMapper.Tests.Engine.Debug.Serialization;
+namespace IfcEnvelopeMapper.Tests.Engine.Visualization.Serialization;
 
 /// <summary>
 /// Unit tests for <see cref="AtomicFile.MoveWithRetry"/>. The retry/backoff

@@ -1,9 +1,9 @@
-namespace IfcEnvelopeMapper.Engine.Debug.Serialization;
+namespace IfcEnvelopeMapper.Engine.Visualization.Serialization;
 
 // Atomic-write helpers shared by anything that wants to publish a file
-// readers might be polling (debug GLB, voxel-occupancy sidecar). Used by
-// GltfSerializer and SidecarWriter.
-public static class AtomicFile
+// readers might be polling (debug GLB, voxel-occupancy JSON). Used by
+// GltfSerializer and VoxelOccupants.
+internal static class AtomicFile
 {
     // File.Move(overwrite:true) occasionally hits transient errors on Windows:
     //   - UnauthorizedAccessException: something holds the destination open

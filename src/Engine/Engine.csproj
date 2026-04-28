@@ -12,6 +12,15 @@
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
   </ItemGroup>
 
+  <!--
+    Grant the test assembly access to internal types so unit tests can
+    exercise infrastructure helpers (AtomicFile, Scene, ViewerHelper,
+    GltfSerializer, VoxelOccupants) that are not part of the public API.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="IfcEnvelopeMapper.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Core\Core.csproj" />
     <ProjectReference Include="..\Ifc\Ifc.csproj" />
@@ -41,6 +50,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Debug\Api\Scene.cs" />
+    <Compile Remove="Debug\IfcTypePalette.cs" />
   </ItemGroup>
 
   <!--
