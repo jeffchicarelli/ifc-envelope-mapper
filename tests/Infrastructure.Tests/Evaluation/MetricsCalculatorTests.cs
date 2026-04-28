@@ -1,15 +1,14 @@
+using g4;
 using IfcEnvelopeMapper.Application.Evaluation;
 using IfcEnvelopeMapper.Domain.Detection;
 using IfcEnvelopeMapper.Domain.Evaluation;
+using IfcEnvelopeMapper.Domain.Interfaces;
 using IfcEnvelopeMapper.Domain.Surface;
-using IfcEnvelopeMapper.Infrastructure.Ifc;
 
 namespace IfcEnvelopeMapper.Infrastructure.Tests.Evaluation;
 
-public sealed class MetricsCalculatorTests : IfcTestBase
+public sealed class MetricsCalculatorTests
 {
-    public MetricsCalculatorTests() : base("duplex.ifc") { }
-
     [Fact]
     public void Compute_AllFourBuckets_ReturnsExpectedCounts()
     {
@@ -36,7 +35,6 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     [Fact]
     public void Compute_GroundTruthWithNullLabel_IsExcludedFromCounts()
     {
-        // IsExterior == null means "unknown" — must not contribute to any cell.
         var element = Elem(0);
 
         var classifications = new[] { Classify(element, true) };
@@ -78,7 +76,7 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     [Fact]
     public void Compute_AllPositiveCorrect_PrecisionAndRecallAreOne()
     {
-        var elements = Model.Elements.Take(5).Select(e => (Element)e).ToList();
+        var elements = Enumerable.Range(0, 5).Select(Elem).ToList();
 
         var classifications = elements.Select(e => Classify(e, true)).ToList();
         var groundTruth = elements.Select(e => new GroundTruthRecord(e.GlobalId, true, null)).ToList();
@@ -93,7 +91,7 @@ public sealed class MetricsCalculatorTests : IfcTestBase
     [Fact]
     public void Compute_OnlyFalsePositives_PrecisionIsZero_RecallIsNaN()
     {
-        var elements = Model.Elements.Take(3).Select(e => (Element)e).ToList();
+        var elements = Enumerable.Range(0, 3).Select(Elem).ToList();
 
         var classifications = elements.Select(e => Classify(e, true)).ToList();
         var groundTruth = elements.Select(e => new GroundTruthRecord(e.GlobalId, false, null)).ToList();
@@ -105,13 +103,19 @@ public sealed class MetricsCalculatorTests : IfcTestBase
         double.IsNaN(counts.Recall).Should().BeTrue();
     }
 
-    private Element Elem(int index)
-    {
-        return (Element)Model.Elements[index];
-    }
+    private static IElement Elem(int index) => new StubElement($"guid-{index:D4}");
 
-    private static ElementClassification Classify(Element element, bool isExterior)
+    private static ElementClassification Classify(IElement element, bool isExterior)
+        => new(element, isExterior, Array.Empty<Face>());
+
+    private sealed class StubElement(string globalId) : IElement
     {
-        return new ElementClassification(element, isExterior, Array.Empty<Face>());
+        public string GlobalId => globalId;
+        public string? Name => null;
+        public AxisAlignedBox3d GetBoundingBox() => default;
+        public DMesh3 GetMesh() => new DMesh3();
+
+        /// <summary>IFC schema class name (e.g. "IfcWall", "IfcSlab").</summary>
+        public string IfcType { get; }
     }
 }

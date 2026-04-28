@@ -13,6 +13,7 @@ namespace IfcEnvelopeMapper.Integration.Tests;
 // in the per-strategy/per-model tests. This test exists to produce a stable
 // artefact the dissertation can quote directly; re-run via `dotnet test` to refresh.
 [Trait("Category", "Research")]
+[Trait("Category", "Integration")]
 public sealed class StrategyComparisonTests : IfcTestBase
 {
     private const double VOXEL_SIZE = 0.25;
