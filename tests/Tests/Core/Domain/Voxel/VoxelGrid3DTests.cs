@@ -253,42 +253,39 @@ public sealed class VoxelGrid3DTests
     }
 
     [Fact]
-    public void FillGaps_UnknownSurroundedByExterior_BecomesExterior()
+    public void FillGaps_UnknownSandwichedByOccupied_BecomesOccupied()
     {
-        // Arrange — (1,1,1) surrounded on all 6 faces by Exterior
+        // Arrange — (1,1,1) sandwiched by Occupied on all three axis pairs
         var grid = new VoxelGrid3D(
             new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
             voxelSize: 1.0);
 
-        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(2, 1, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 2, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 1, 2)] = VoxelState.Exterior;
+        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Occupied;
+        grid[new VoxelCoord(2, 1, 1)] = VoxelState.Occupied;
+        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Occupied;
+        grid[new VoxelCoord(1, 2, 1)] = VoxelState.Occupied;
+        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Occupied;
+        grid[new VoxelCoord(1, 1, 2)] = VoxelState.Occupied;
 
         // Act
         grid.FillGaps();
 
         // Assert
-        grid[new VoxelCoord(1, 1, 1)].Should().Be(VoxelState.Exterior);
+        grid[new VoxelCoord(1, 1, 1)].Should().Be(VoxelState.Occupied);
     }
 
     [Fact]
-    public void FillGaps_UnknownWithFiveExteriorNeighbors_StaysUnknown()
+    public void FillGaps_UnknownWithNoCompleteAxisPair_StaysUnknown()
     {
-        // Arrange — only 5 of 6 face-adjacent voxels are Exterior
+        // Arrange — one Occupied neighbor on each axis, but never both sides;
+        // no axis pair is complete so FillGaps has nothing to close
         var grid = new VoxelGrid3D(
             new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
             voxelSize: 1.0);
 
-        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(2, 1, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 2, 1)] = VoxelState.Exterior;
-        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Exterior;
-
-        // (1,1,2) left as Unknown — only 5 Exterior neighbors
+        grid[new VoxelCoord(0, 1, 1)] = VoxelState.Occupied; // +X only
+        grid[new VoxelCoord(1, 0, 1)] = VoxelState.Occupied; // +Y only
+        grid[new VoxelCoord(1, 1, 0)] = VoxelState.Occupied; // +Z only
 
         // Act
         grid.FillGaps();
