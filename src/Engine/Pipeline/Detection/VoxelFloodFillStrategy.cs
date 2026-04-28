@@ -9,9 +9,6 @@ using IfcEnvelopeMapper.Ifc.Domain.Surface;
 using IfcEnvelopeMapper.Core.Extensions;
 using IfcEnvelopeMapper.Core.Domain.Voxel;
 
-// Debug is a Debug-config-only ProjectReference — this using has to match
-// the same gate as the call sites below, otherwise Release can't resolve
-// the namespace.
 #if DEBUGMESH
 using IfcEnvelopeMapper.Engine.Visualization.Api;
 using Microsoft.Extensions.Logging;

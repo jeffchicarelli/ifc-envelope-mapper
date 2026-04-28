@@ -1,5 +1,8 @@
+using IfcEnvelopeMapper.Core.Diagnostics;
+using IfcEnvelopeMapper.Engine.Visualization.Api;
 using IfcEnvelopeMapper.Ifc.Domain;
 using IfcEnvelopeMapper.Ifc.Loading;
+using Microsoft.Extensions.Logging;
 using Xbim.Ifc4.Interfaces;
 
 namespace IfcEnvelopeMapper.Tests;
@@ -39,6 +42,33 @@ public abstract class IfcTestBase
 {
     private static readonly Dictionary<(Type, string), ModelLoadResult> _cache = new();
     private static readonly object _cacheLock = new();
+
+    // Wire AppLog + GeometryDebug once per test process. Without the AppLog
+    // call, every Log.LogInformation from production code under test goes to
+    // NullLogger and is silently dropped. Without the GeometryDebug.Configure
+    // call, strategies running under DEBUGMESH would throw at the first
+    // emission ("Configure must be called before any emission") because the
+    // strategy code no longer hardcodes a path.
+    //
+    // GeometryDebug paths/flags are env-var driven so this default is safe in
+    // CI and easy to override locally:
+    //   IFC_DEBUG_GLB     — output GLB path (default %TEMP%/ifc-debug-output.glb)
+    //   IFC_DEBUG_VIEWER  — "true" spawns the viewer helper at localhost:5173,
+    //                       anything else (including unset) leaves it dormant
+    //                       so headless test runs don't fork a child process.
+    static IfcTestBase()
+    {
+        var loggerFactory = LoggerFactory.Create(b => b
+            .AddConsole()
+            .SetMinimumLevel(LogLevel.Warning)
+            .AddFilter("IfcEnvelopeMapper", LogLevel.Information));
+        AppLog.Configure(loggerFactory);
+
+        var glbPath      = Environment.GetEnvironmentVariable("IFC_DEBUG_GLB")
+                           ?? Path.Combine(Path.GetTempPath(), "ifc-debug-output.glb");
+        var launchServer = Environment.GetEnvironmentVariable("IFC_DEBUG_VIEWER") == "true";
+        GeometryDebug.Configure(glbPath, launchServer);
+    }
 
     /// <summary>Path of the currently associated IFC file.</summary>
     protected string IfcPath { get; private set; } = null!;
