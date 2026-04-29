@@ -6,6 +6,27 @@ C#/.NET 8 CLI tool that extracts the envelope and facades of a building from an 
 
 Practical component of the MBA in Software Engineering TCC (USP/Esalq), defense scheduled for April 2027. Full technical design is documented in [docs/plano.md](docs/plano.md) (in Portuguese).
 
+## What it does
+
+Given an IFC model, the CLI computes:
+
+- **Envelope** — exterior face regions of the building, traceable to each contributing IFC element.
+- **Facades** — exterior faces grouped by dominant orientation (DBSCAN over the Gauss sphere + spatial connectivity), with per-facade WWR (window-to-wall ratio).
+- **Multi-LoD outputs** — 2D footprint per storey, block model, roof shell, interior space classification, voxel grid (Biljecki 2016 / van der Vaart 2025 LoD framework).
+- **Topological features** — airwells, light shafts, recesses, atria, setbacks, overhangs, cantilevers — derived as queries on the LoD layers.
+
+The detection step is geometry-first: IFC properties such as `Pset_WallCommon.IsExternal` may inform but never gate classification.
+
+### Detection strategies
+
+Three strategies are compared on the same fixtures with TP/FP/FN/TN + Precision/Recall:
+
+| Strategy | Role | Reference |
+|---|---|---|
+| Voxel uniform + 3-phase flood-fill | Ablation baseline | van der Vaart (2022) |
+| Ray casting per face | External baseline | Ying et al. (2022) |
+| Hierarchical voxel flood-fill | Original contribution | this work |
+
 ## Prerequisites
 
 - [.NET SDK 8.0](https://dotnet.microsoft.com/download/dotnet/8.0) or later
@@ -35,54 +56,35 @@ xBIM's native DLLs crash when loaded from a Google Drive Streaming path. The bun
 pwsh scripts/run-from-temp.ps1
 ```
 
+## Output formats
+
+| Output | Format | Purpose |
+|---|---|---|
+| JSON report | Custom JSON v3 | Machine-readable analysis with per-LoD blocks and topological features |
+| BCF | BCF 2.1 (zip XML) | Visual review with viewpoints in BIMcollab / Solibri / Revit Issues |
+| Enriched IFC | IFC4 + custom Pset + IfcGroup | Round-trip back into Revit, ArchiCAD, BlenderBIM |
+| GLB | glTF binary | Visualisation in browser-based viewers |
+
+The original IFC is never modified in place — the enriched IFC is written as `*_enriched.ifc` next to the input.
+
 ## Project layout
 
-Project folders use short names; assembly names and namespaces keep the `IfcEnvelopeMapper.*` prefix via `RootNamespace` / `AssemblyName` settings.
+Project folders use short names; assembly names and namespaces keep the `IfcEnvelopeMapper.*` prefix.
 
-```
-src/
-  Domain/                         Pure business model — no xBIM dependency.
-    Interfaces/                     IElement (+ IIfcEntity, IBoxEntity, IMeshEntity).
-    Surface/                        Envelope, Facade, Face.
-    Voxel/                          VoxelGrid3D, VoxelCoord, VoxelState.
-    Detection/                      DetectionResult, ElementClassification, StrategyConfig.
-    Evaluation/                     DetectionCounts, EvaluationResult, GroundTruthRecord.
-    Services/                       IEnvelopeDetector, IFaceExtractor, IFacadeGrouper.
-    Extensions/                     6 math extension classes (DMesh3, Plane3d, Vector3d,
-                                    AxisAlignedBox3d, VoxelGrid3D, IBoxEntity).
-  Application/                    Orchestration — depends on Domain only.
-    Ports/                          IModelLoader, ModelLoadResult, IBcfWriter,
-                                    IJsonReportWriter, IGroundTruthReader.
-    Reports/                        JsonReportBuilder, BcfBuilder, DetectionReport, BcfPackage.
-    Evaluation/                     EvaluationService, MetricsCalculator.
-  Infrastructure/                 xBIM adapters, detection algorithms, persistence.
-    Ifc/                            Element, Storey, IfcProductContext, IProductEntity.
-    Ifc/Loading/                    XbimModelLoader, ElementFilter,
-                                    IfcLoadException, IfcGeometryException.
-    Detection/                      VoxelFloodFillDetector, RayCastingDetector,
-                                    PcaFaceExtractor, DbscanFacadeGrouper.
-    Persistence/                    JsonReportWriter, BcfWriter,
-                                    GroundTruthCsvReader, GroundTruthGenerator.
-    Visualization/                  GeometryDebug ([Conditional("DEBUG")]), Scene,
-                                    ViewerHelper, GltfSerializer, DebugShape, Color,
-                                    IfcTypePalette, VoxelOccupants, AtomicFile.
-    Diagnostics/                    AppLog.
-  DebugServer/                    Standalone EXE — out-of-process HTTP viewer (ADR-17).
-                                  Spawned by Infrastructure.Visualization.ViewerHelper; not a managed reference.
-  Cli/                            DI wiring + System.CommandLine entry point.
-tools/
-  debug-viewer/                   three.js glTF viewer served by DebugServer (ADR-17).
-tests/
-  Domain.Tests/                   Pure unit tests — no xBIM, no IFC files.
-  Infrastructure.Tests/           Unit tests requiring xBIM and IFC fixtures.
-  Integration.Tests/              End-to-end — AirwellDetection, StrategyComparison.
-docs/
-  plano.md                        Technical design, ADRs, and roadmap (PT-BR).
-data/
-  models/                         Input IFC files.
-scripts/
-  run-from-temp.ps1               Google Drive Streaming workaround.
-```
+| Path | Role |
+|---|---|
+| `src/Domain/` | Pure business model — no xBIM. Depends on `geometry4Sharp` only. |
+| `src/Application/` | Use-case orchestration, ports, report builders. Depends on `Domain`. |
+| `src/Infrastructure/` | xBIM adapters, detection algorithms, persistence, debug visualisation. |
+| `src/Cli/` | DI composition root + `System.CommandLine` entry point. |
+| `src/DebugServer/` | Standalone EXE (ADR-17). Out-of-process HTTP viewer; spawned at runtime, not a managed reference. |
+| `tests/Domain.Tests/` | Pure unit tests — no xBIM, no IFC files. |
+| `tests/Infrastructure.Tests/` | Unit tests requiring xBIM and IFC fixtures. |
+| `tests/Integration.Tests/` | End-to-end (AirwellDetection, StrategyComparison). |
+| `tools/debug-viewer/` | three.js glTF viewer served by `DebugServer`. |
+| `docs/plano.md` | Technical design, ADRs, phases (PT-BR). |
+| `data/models/` | Input IFC files. |
+| `scripts/run-from-temp.ps1` | Google Drive Streaming workaround. |
 
 Dependency direction is unidirectional and acyclic:
 
@@ -90,13 +92,14 @@ Dependency direction is unidirectional and acyclic:
 Cli ──► Application ──► Domain
   └──► Infrastructure ──► Domain
                      └──► Application
-
-DebugServer is process-spawned by Infrastructure.Visualization; not a managed dependency.
 ```
 
-`Domain` holds the pure business model with no external library dependencies beyond `geometry4Sharp`. `Application` orchestrates use cases without touching xBIM. `Infrastructure` owns everything that requires xBIM, algorithm implementations, file I/O, and GLB visualization. `Cli` is the DI composition root and thin entry point.
+`Domain` holds the pure business model with no external library dependencies beyond `geometry4Sharp`. `Application` orchestrates use cases without touching xBIM. `Infrastructure` owns everything that requires xBIM, algorithm implementations, file I/O, and GLB visualisation. `Cli` is the DI composition root and thin entry point. Per-class breakdown lives in [docs/plano.md §4](docs/plano.md).
 
 ## Documentation
 
-- [docs/plano.md](docs/plano.md) — full technical plan (architecture, ADRs, algorithms, JSON report schema)
-- [2027-TCC/](../2027-TCC) — dissertation, methodology, and references (separate repo)
+- [docs/plano.md](docs/plano.md) — full technical plan: architecture, ADRs, algorithms, JSON v3 schema, phase plan
+
+### Academic positioning
+
+Closest prior work is **van der Vaart, Arroyo Ohori & Stoter (2025)**'s `IFC_BuildingEnvExtractor` (TU Delft 3D Geoinformation Group), which produces multi-LoD CityJSON output. This work preserves `IElement` references at every LoD and adds a topological taxonomy of building features (airwell, light shaft, recess) tied to the LoD framework. Full positioning in [docs/plano.md §10](docs/plano.md).
