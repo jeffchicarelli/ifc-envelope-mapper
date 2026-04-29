@@ -20,7 +20,7 @@
 
 **Saídas.** JSON, BCF 2.1, IFC enriquecido (caminho de volta ao BIM authoring), GLB para visualização. Ver §5.
 
-**Validação.** *Ground truth* de especialistas AEC; contagens TP/FP/FN/TN + Precisão/Recall por estratégia × modelo.
+**Validação.** Estratégia triangulada em três camadas: (C1) comparação automatizada com IFC_BuildingEnvExtractor (van der Vaart, 2022); (C2) auto-rotulação documentada do pesquisador como *ground truth* primário; (C3) revisão visual por profissionais AEC mediante *survey* baseado em arquivos BCF e capturas de tela. Métricas: contagens TP/FP/FN/TN + Precisão/Recall por estratégia × modelo. Detalhamento em §3.6.
 
 ### 1.2 Status atual
 
@@ -74,7 +74,11 @@
 
 ### 3.1 Pergunta de pesquisa
 
-> Um esquema de voxelização hierárquica com *flood-fill* supera a voxelização uniforme (van der Vaart 2022) e o *ray casting* (Ying 2022) em precisão e *recall* sobre modelos IFC reais, preservando rastreabilidade ao `GlobalId` do elemento de origem e agregação em fachadas por plano dominante?
+> Como projetar e avaliar uma ferramenta de software para inferência automática de fachadas em modelos IFC, baseada exclusivamente em geometria 3D, que preserve rastreabilidade entre superfícies detectadas e elementos IFC originais, e seja arquitetonicamente extensível para futuras estratégias e formatos de saída?
+
+A pergunta articula três dimensões da contribuição: (i) o **método geométrico** *(geometry-first)*, sem dependência de metadados IFC; (ii) a **preservação de rastreabilidade** ao `GlobalId` IFC em todos os níveis de detalhe — lacuna documentada em van der Vaart (2025); (iii) a **extensibilidade arquitetural** sob *Clean Architecture* — atributo de qualidade central a um trabalho de Engenharia de Software, materializado pelo desacoplamento das estratégias de detecção via portas e adaptadores.
+
+**Sub-questão técnica (Fase 6).** Um esquema de voxelização hierárquica com *flood-fill* supera a voxelização uniforme (van der Vaart, 2022) e o *ray casting* (Ying et al., 2022) em precisão e *recall* sobre modelos IFC reais, preservando rastreabilidade ao `GlobalId` e agregação em fachadas por plano dominante?
 
 ### 3.2 Três estratégias de detecção
 
@@ -104,6 +108,28 @@ A `NormalsStrategy` (variante trivial) foi descartada por não contribuir compar
 ### 3.4 Métricas de avaliação
 
 Contagens TP/FP/FN/TN + Precisão e Recall por estratégia × modelo (Ying et al. 2022, Eq. 12–13). F1 e Kappa intencionalmente fora — não aparecem nas referências canônicas. Determinismo: ordenação estável por `GlobalId` com `StringComparer.Ordinal` antes de serializar.
+
+### 3.5 Objetivos
+
+**Objetivo geral.** Projetar, implementar e avaliar uma ferramenta de software de linha de comando, em C#/.NET, capaz de identificar automaticamente fachadas em modelos IFC mediante inferência geométrica pura, preservando rastreabilidade aos elementos IFC originais e disponibilizada em arquitetura extensível para servir como base reutilizável a desenvolvedores e pesquisadores AEC.
+
+**Objetivos específicos.**
+
+1. Implementar *pipeline* geométrico em quatro estágios — carga, detecção, agrupamento, *multi-LoD* — sob *Clean Architecture*, com separação rigorosa entre domínio, aplicação, infraestrutura e CLI.
+2. Comparar experimentalmente as estratégias de detecção (voxel + *flood-fill* uniforme e *ray casting* por face) em Precisão e Recall sobre modelos IFC públicos.
+3. Validar resultados em três camadas complementares (ver §3.6).
+4. Produzir saídas em múltiplos formatos preservando rastreabilidade ao `GlobalId` IFC: JSON · BCF 2.1 · IFC enriquecido (`Pset_IEM_*` + `IfcGroup`) · GLB.
+5. Demonstrar extensibilidade arquitetural por meio de pelo menos uma extensão concreta do *pipeline* — por exemplo, substituição da estratégia de detecção sem modificação dos demais estágios.
+
+### 3.6 Estratégia de validação — *ground truth* triangulado
+
+| Camada | O que é | Quem faz | Função |
+|---|---|---|---|
+| **C1** | Comparação automatizada com IFC_BuildingEnvExtractor (van der Vaart, 2022) sobre os mesmos modelos. | Automatizada (script). | Reduz viés de rotulador único; referencia o estado da arte. |
+| **C2** | Auto-rotulação documentada do pesquisador como *ground truth* primário, com diretrizes explícitas e registro do tempo dedicado por modelo. | Pesquisador. | Base operacional para as métricas de Precisão e Recall. |
+| **C3** | Revisão visual por profissionais AEC mediante *survey* baseado em capturas de tela e arquivos BCF. **Profissionais não rotulam do zero — apenas revisam** os resultados produzidos pela ferramenta. | 5–10 profissionais AEC. | Validação qualitativa de coerência arquitetônica e utilidade prática. |
+
+A triangulação é robusta e operacionalmente viável: profissionais AEC não precisam instalar a ferramenta de pesquisa para participar; a comparação automatizada com a ferramenta canônica complementa a rotulação humana; e o *survey* (C3) é executável via Google Forms a partir de imagens. Detalhamento do instrumento C3 em `02_Etapa2_Questionario/esboco-survey-especialistas.md`.
 
 ---
 
@@ -854,11 +880,12 @@ Decisão documentada em ADR novo na data.
 A ferramenta é bem-sucedida academicamente quando:
 
 1. **O método funciona de ponta a ponta** em modelos IFC reais de diferentes tipologias.
-2. **Resultados são mensuráveis**: Precisão e Recall calculados contra *ground truth* rotulado por especialistas.
+2. **Resultados são mensuráveis**: Precisão e Recall calculados contra *ground truth* triangulado em três camadas — comparação automatizada com IFC_BuildingEnvExtractor (C1) + auto-rotulação documentada do pesquisador (C2) + revisão visual por profissionais AEC via *survey* (C3). Ver §3.6.
 3. **Rastreabilidade preservada em todos os LoDs**: cada face, fachada, contorno, espaço e *feature* detectada é rastreável ao `IElement` de origem — diferencial direto contra van der Vaart (2025), que perde *provenance* abaixo do LoD3.
 4. **Aplicabilidade demonstrada**: WWR por fachada calculado a partir dos resultados; *features* topológicas (poço de ventilação, recesso, átrio, balanço) computadas a partir das camadas LoD.
 5. **Saída de volta ao BIM**: IFC enriquecido com `Pset_IEM_*` + `IfcGroup` lê-se nativamente em Revit, ArchiCAD, BlenderBIM — fechando o ciclo BIM → análise → BIM.
 6. **O resultado é reproduzível**: qualquer pessoa com .NET 8 pode rodar `dotnet run` e obter os mesmos números.
+7. **Extensibilidade arquitetural demonstrada**: a *Clean Architecture* com portas e adaptadores permite ao menos uma extensão concreta do *pipeline* — por exemplo, substituição da estratégia de detecção sem modificação dos demais estágios — alinhando o trabalho à natureza do MBA em Engenharia de Software.
 
 ---
 
